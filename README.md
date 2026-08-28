@@ -348,27 +348,15 @@ Una posible futura representación Matter será mediante un dispositivo/cluster 
 
 # Project Structure
 
-La estructura prevista del proyecto es:
+La estructura actual incluye una base mínima ESP-IDF y la documentación inicial de hardware:
 
 ```text
 smartEnvironmentSensor/
 │
 ├── firmware/
-│   │
 │   ├── main/
 │   │   ├── app_main.cpp
-│   │   ├── bme680_sensor.cpp
-│   │   ├── bme680_sensor.h
-│   │   ├── matter_device.cpp
-│   │   ├── matter_device.h
 │   │   └── CMakeLists.txt
-│   │
-│   ├── components/
-│   │   └── bme680/
-│   │       ├── bme680.c
-│   │       ├── bme680.h
-│   │       └── CMakeLists.txt
-│   │
 │   ├── CMakeLists.txt
 │   └── sdkconfig.defaults
 │
@@ -376,18 +364,14 @@ smartEnvironmentSensor/
 │   └── README.md
 │
 ├── docs/
-│   ├── architecture.md
-│   ├── matter.md
-│   └── mqtt.md
-│
-├── examples/
-│
+│   └── hardware.md
+├── .gitignore
 ├── README.md
 ├── AGENTS.md
-└── .gitignore
+└── LICENSE
 ```
 
-Esta estructura es una propuesta para la etapa de firmware. El repositorio todavía puede comenzar solo con documentación y crecer cuando se cree el proyecto ESP-IDF/ESP-Matter.
+Los módulos de BME680, Matter y MQTT se agregarán de forma incremental cuando se implemente cada etapa. La base actual solo inicializa la aplicación y registra las decisiones de hardware iniciales.
 
 ---
 
@@ -421,6 +405,7 @@ VS Code puede utilizarse como IDE.
 Una vez instalado ESP-IDF:
 
 ```bash
+cd firmware
 idf.py set-target esp32c3
 ```
 
@@ -452,11 +437,20 @@ idf.py flash monitor
 
 # Development Roadmap
 
+## Phase 0 — ESP-IDF Base
+
+* [x] Crear estructura mínima ESP-IDF.
+* [x] Configurar target inicial `esp32c3` en `sdkconfig.defaults`.
+* [x] Agregar `app_main.cpp` inicial.
+* [x] Documentar hardware inicial en `docs/hardware.md`.
+* [x] Compilar con `idf.py build` en un entorno con ESP-IDF instalado.
+
 ## Phase 1 — Hardware
 
 * [x] Confirmar placa objetivo inicial: ESP32-C3 SuperMini.
 * [x] Confirmar módulo BME680 con pines VCC/GND/SCL/SDA/SDO/CS.
 * [x] Definir GPIO I²C iniciales: SDA GPIO4, SCL GPIO5.
+* [x] Documentar cableado inicial del BME680.
 * [ ] Verificar alimentación de 3.3 V.
 * [ ] Probar comunicación I²C.
 
@@ -541,7 +535,7 @@ El proyecto seguirá estos principios:
 
 🚧 **Early Development**
 
-El proyecto se encuentra en etapa de diseño.
+El proyecto se encuentra en etapa de diseño e implementación inicial.
 
 Actualmente están definidos:
 
@@ -552,4 +546,4 @@ Actualmente están definidos:
 * MQTT como canal de telemetría.
 * InfluxDB + Grafana como plataforma de monitorización.
 
-La implementación del firmware todavía está pendiente.
+La base ESP-IDF mínima ya existe en `firmware/`. La integración del BME680, Matter y MQTT sigue pendiente y se implementará por etapas.
