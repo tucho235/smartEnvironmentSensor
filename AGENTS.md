@@ -2,9 +2,9 @@
 
 ## Project
 
-**BME680 Matter Sensor**
+**Smart Environment Sensor**
 
-Firmware for an ESP32-C3 connected to a Bosch BME680 environmental sensor.
+Firmware for an ESP32-C3 SuperMini connected to a Bosch BME680 environmental sensor.
 
 The device is intended to expose environmental measurements through Matter while simultaneously publishing telemetry through MQTT to a local Raspberry Pi infrastructure.
 
@@ -40,7 +40,7 @@ Do not implement future functionality unless explicitly requested.
 Target MCU:
 
 ```text
-ESP32-C3
+ESP32-C3 SuperMini
 ```
 
 Sensor:
@@ -55,9 +55,20 @@ Communication between the MCU and sensor:
 I²C
 ```
 
-The exact ESP32-C3 Mini board and GPIO assignments must be confirmed before hard-coding pins.
+The initial target board and GPIO assignments have been documented below.
 
-Do not assume GPIO assignments unless they are documented in the project configuration or explicitly provided by the developer.
+Initial hardware decision:
+
+```text
+BME680 VCC  -> ESP32-C3 SuperMini 3V3
+BME680 GND  -> ESP32-C3 SuperMini GND
+BME680 SDA  -> ESP32-C3 SuperMini GPIO4
+BME680 SCL  -> ESP32-C3 SuperMini GPIO5
+BME680 SDO  -> GND, selecting I²C address 0x76
+BME680 CS   -> 3V3, selecting I²C mode
+```
+
+Use these pins as the initial documented wiring unless project configuration is later updated. Avoid defaulting to GPIO8/GPIO9 for I²C on this board without explicitly re-checking boot/strapping implications.
 
 ---
 
@@ -443,7 +454,7 @@ Avoid:
 Expected structure:
 
 ```text
-bme680-matter/
+smartEnvironmentSensor/
 │
 ├── firmware/
 │   ├── main/
@@ -470,7 +481,7 @@ bme680-matter/
 
 The structure may evolve as implementation progresses.
 
-Do not reorganize the entire repository without a concrete reason.
+The repository may remain documentation-only until the ESP-IDF/ESP-Matter project is intentionally created. Do not add placeholder firmware files, generated build files, or dependencies during documentation-only setup work.
 
 ---
 
@@ -481,11 +492,11 @@ Before making significant changes:
 1. Inspect the existing project.
 2. Read `README.md`.
 3. Read `AGENTS.md`.
-4. Inspect the current ESP-IDF/ESP-Matter versions.
+4. Inspect the current ESP-IDF/ESP-Matter versions when a firmware project exists.
 5. Understand the existing architecture.
 6. Make the smallest reasonable change.
-7. Build the project.
-8. Fix compilation errors.
+7. Build the project when build files exist.
+8. Fix compilation errors when implementation work is in scope.
 9. Review the resulting diff.
 10. Update documentation when behavior or architecture changes.
 

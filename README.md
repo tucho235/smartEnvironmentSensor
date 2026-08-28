@@ -1,4 +1,4 @@
-# BME680 Matter Sensor
+# Smart Environment Sensor
 
 Firmware para un **ESP32-C3** conectado a un sensor ambiental **Bosch BME680**, con soporte para **Matter** y telemetría mediante **MQTT** hacia una Raspberry Pi para almacenamiento histórico en **InfluxDB** y visualización mediante **Grafana**.
 
@@ -69,12 +69,12 @@ Matter estará orientado principalmente a la integración con domótica, mientra
 
 ## Microcontroller
 
-* ESP32-C3 Mini
+* ESP32-C3 SuperMini
 * Wi-Fi
 * Bluetooth LE
 * Matter over Wi-Fi
 
-El modelo exacto de la placa debe documentarse cuando se confirme el hardware utilizado.
+La placa objetivo inicial es un **ESP32-C3 SuperMini**. Si más adelante se usa una variante distinta de ESP32-C3, se deberá revisar especialmente el pinout, los pines de arranque y la disponibilidad de GPIO.
 
 ## Sensor
 
@@ -84,15 +84,17 @@ El modelo exacto de la placa debe documentarse cuando se confirme el hardware ut
 Conexión prevista:
 
 ```text
-BME680          ESP32-C3
-────────────────────────
-VCC       ────► 3.3V
+BME680          ESP32-C3 SuperMini
+──────────────────────────────────
+VCC       ────► 3V3
 GND       ────► GND
-SDA       ────► GPIO configurable
-SCL       ────► GPIO configurable
+SDA       ────► GPIO4
+SCL       ────► GPIO5
+SDO       ────► GND   (dirección I²C 0x76)
+CS        ────► 3V3   (modo I²C)
 ```
 
-Los GPIO definitivos dependerán de la placa ESP32-C3 utilizada.
+Se evitan GPIO8/GPIO9 para I²C en esta placa porque pueden interferir con funciones de arranque o BOOT según la variante del módulo. La dirección inicial prevista del BME680 es `0x76`.
 
 ---
 
@@ -349,7 +351,7 @@ Una posible futura representación Matter será mediante un dispositivo/cluster 
 La estructura prevista del proyecto es:
 
 ```text
-bme680-matter/
+smartEnvironmentSensor/
 │
 ├── firmware/
 │   │
@@ -385,7 +387,7 @@ bme680-matter/
 └── .gitignore
 ```
 
-La estructura puede modificarse durante el desarrollo si una organización diferente resulta más adecuada para ESP-IDF.
+Esta estructura es una propuesta para la etapa de firmware. El repositorio todavía puede comenzar solo con documentación y crecer cuando se cree el proyecto ESP-IDF/ESP-Matter.
 
 ---
 
@@ -452,9 +454,9 @@ idf.py flash monitor
 
 ## Phase 1 — Hardware
 
-* [ ] Confirmar modelo exacto del ESP32-C3 Mini.
-* [ ] Confirmar módulo BME680.
-* [ ] Definir GPIO I²C.
+* [x] Confirmar placa objetivo inicial: ESP32-C3 SuperMini.
+* [x] Confirmar módulo BME680 con pines VCC/GND/SCL/SDA/SDO/CS.
+* [x] Definir GPIO I²C iniciales: SDA GPIO4, SCL GPIO5.
 * [ ] Verificar alimentación de 3.3 V.
 * [ ] Probar comunicación I²C.
 
