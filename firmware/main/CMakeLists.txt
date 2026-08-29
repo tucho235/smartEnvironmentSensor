@@ -1,6 +1,6 @@
 idf_component_register(
-    SRCS "app_main.cpp" "bme680_sensor.cpp" "sensor_service.cpp"
+    SRCS "app_main.cpp" "bme680_sensor.cpp" "sensor_service.cpp" "wifi_station.cpp"
     INCLUDE_DIRS "." "include"
-    REQUIRES esp_driver_i2c esp_timer
+    REQUIRES esp_driver_i2c esp_event esp_netif esp_timer esp_wifi nvs_flash
     PRIV_REQUIRES bme68x
 )

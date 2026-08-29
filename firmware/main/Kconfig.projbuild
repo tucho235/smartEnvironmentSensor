@@ -1,0 +1,17 @@
+menu "Smart Environment Sensor Configuration"
+
+    config APP_WIFI_SSID
+        string "Wi-Fi SSID"
+        default ""
+        help
+            Local Wi-Fi network name. This value is written to sdkconfig, which
+            is ignored by Git. Do not add credentials to sdkconfig.defaults.
+
+    config APP_WIFI_PASSWORD
+        string "Wi-Fi password"
+        default ""
+        help
+            Local Wi-Fi password. This value is written to sdkconfig, which is
+            ignored by Git. Do not add credentials to sdkconfig.defaults.
+
+endmenu

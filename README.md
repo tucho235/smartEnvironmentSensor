@@ -385,7 +385,9 @@ smartEnvironmentSensor/
 │   └── README.md
 │
 ├── docs/
-│   └── hardware.md
+│   ├── hardware.md
+│   ├── mqtt.md
+│   └── wifi.md
 ├── .gitignore
 ├── README.md
 ├── AGENTS.md
@@ -435,6 +437,15 @@ Compilar:
 ```bash
 idf.py build
 ```
+
+Configurar Wi-Fi localmente:
+
+```bash
+idf.py menuconfig
+```
+
+Las credenciales se guardan en `firmware/sdkconfig`, que está ignorado por Git.
+No se deben agregar SSID/password a `sdkconfig.defaults`.
 
 Flashear:
 
@@ -502,8 +513,8 @@ idf.py flash monitor
 ## Phase 4 — MQTT
 
 * [ ] Implementar cliente MQTT.
-* [ ] Definir topics.
-* [ ] Definir payload.
+* [x] Definir topics preliminares.
+* [x] Definir payload preliminar.
 * [ ] Implementar reconexión.
 * [ ] Integrar con broker existente.
 * [ ] Verificar recepción desde Raspberry Pi.
@@ -519,7 +530,7 @@ idf.py flash monitor
 
 ## Phase 6 — Reliability
 
-* [ ] Wi-Fi auto reconnect.
+* [x] Wi-Fi auto reconnect básico.
 * [ ] MQTT auto reconnect.
 * [ ] I²C recovery.
 * [ ] Watchdog.
