@@ -372,13 +372,19 @@ smartEnvironmentSensor/
 │   │   ├── app_main.cpp
 │   │   ├── bme680_sensor.cpp
 │   │   ├── sensor_service.cpp
+│   │   ├── wifi_station.cpp
 │   │   ├── include/
 │   │   │   ├── app_config.h
 │   │   │   ├── bme680_sensor.h
 │   │   │   ├── sensor_sample.h
-│   │   │   └── sensor_service.h
-│   │   └── CMakeLists.txt
+│   │   │   ├── sensor_service.h
+│   │   │   └── wifi_station.h
+│   │   ├── CMakeLists.txt
+│   │   ├── Kconfig.projbuild
+│   │   └── idf_component.yml
 │   ├── CMakeLists.txt
+│   ├── dependencies.lock
+│   ├── partitions.csv
 │   └── sdkconfig.defaults
 │
 ├── hardware/
@@ -438,14 +444,16 @@ Compilar:
 idf.py build
 ```
 
-Configurar Wi-Fi localmente:
+El firmware no necesita SSID/password al compilar. Si no hay credenciales Wi-Fi
+guardadas en NVS, el ESP32-C3 inicia provisioning BLE y permite configurarlas
+desde una app compatible.
 
-```bash
-idf.py menuconfig
-```
+La opción local `BLE provisioning proof of possession` puede configurarse con
+`idf.py menuconfig` si se quiere agregar una prueba de posesión durante el
+provisioning. Ese valor queda en `firmware/sdkconfig`, que está ignorado por
+Git.
 
-Las credenciales se guardan en `firmware/sdkconfig`, que está ignorado por Git.
-No se deben agregar SSID/password a `sdkconfig.defaults`.
+No se deben agregar SSID/password ni proofs of possession a `sdkconfig.defaults`.
 
 Flashear:
 
@@ -531,10 +539,11 @@ idf.py flash monitor
 ## Phase 6 — Reliability
 
 * [x] Wi-Fi auto reconnect básico.
+* [x] BLE Wi-Fi provisioning básico.
 * [ ] MQTT auto reconnect.
 * [ ] I²C recovery.
 * [ ] Watchdog.
-* [ ] NVS.
+* [x] NVS para credenciales Wi-Fi.
 * [ ] Manejo de errores.
 * [ ] Pruebas prolongadas.
 

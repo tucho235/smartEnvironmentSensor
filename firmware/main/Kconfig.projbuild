@@ -1,17 +1,26 @@
 menu "Smart Environment Sensor Configuration"
 
-    config APP_WIFI_SSID
-        string "Wi-Fi SSID"
-        default ""
+    config APP_WIFI_PROV_SERVICE_PREFIX
+        string "BLE provisioning service name prefix"
+        default "SMENV_"
         help
-            Local Wi-Fi network name. This value is written to sdkconfig, which
-            is ignored by Git. Do not add credentials to sdkconfig.defaults.
+            Prefix used to build the BLE device name shown by the provisioning
+            app. The last three bytes of the Wi-Fi MAC are appended.
 
-    config APP_WIFI_PASSWORD
-        string "Wi-Fi password"
+    config APP_WIFI_PROV_POP
+        string "BLE provisioning proof of possession"
         default ""
         help
-            Local Wi-Fi password. This value is written to sdkconfig, which is
-            ignored by Git. Do not add credentials to sdkconfig.defaults.
+            Optional local proof of possession for provisioning security 1.
+            Leave empty for initial development. If set, keep it only in the
+            ignored local sdkconfig file and do not add it to sdkconfig.defaults.
+
+    config APP_WIFI_PROV_MAX_ATTEMPTS
+        int "Maximum provisioning Wi-Fi connection attempts"
+        default 5
+        range 1 20
+        help
+            Number of connection attempts the provisioning manager may use when
+            testing newly received Wi-Fi credentials.
 
 endmenu

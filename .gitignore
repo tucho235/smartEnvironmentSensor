@@ -4,7 +4,6 @@
 # ESP-IDF build output
 firmware/build/
 firmware/managed_components/
-firmware/dependencies.lock
 firmware/sdkconfig
 firmware/sdkconfig.old
 eim_config.toml
