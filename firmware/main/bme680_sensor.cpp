@@ -2,6 +2,7 @@
 
 #include <cstdint>
 
+#include "app_config.h"
 #include "bme68x.h"
 #include "driver/i2c_master.h"
 #include "esp_log.h"
@@ -10,12 +11,6 @@
 
 namespace {
 constexpr const char *TAG = "BME680";
-
-constexpr gpio_num_t kI2cSdaGpio = GPIO_NUM_4;
-constexpr gpio_num_t kI2cSclGpio = GPIO_NUM_5;
-constexpr uint8_t kBme680Address = 0x76;
-constexpr uint32_t kI2cClockHz = 100000;
-constexpr int kI2cTimeoutMs = 100;
 
 esp_err_t bme68x_status_to_esp_err(int8_t status)
 {
@@ -42,8 +37,8 @@ esp_err_t Bme680Sensor::init()
 
     i2c_master_bus_config_t bus_config = {};
     bus_config.i2c_port = I2C_NUM_0;
-    bus_config.sda_io_num = kI2cSdaGpio;
-    bus_config.scl_io_num = kI2cSclGpio;
+    bus_config.sda_io_num = app_config::kI2cSdaGpio;
+    bus_config.scl_io_num = app_config::kI2cSclGpio;
     bus_config.clk_source = I2C_CLK_SRC_DEFAULT;
     bus_config.flags.enable_internal_pullup = true;
 
@@ -54,20 +49,20 @@ esp_err_t Bme680Sensor::init()
     }
 
     ESP_LOGI(TAG, "I2C bus initialized: SDA GPIO%d, SCL GPIO%d, %lu Hz",
-             kI2cSdaGpio, kI2cSclGpio, kI2cClockHz);
+             app_config::kI2cSdaGpio, app_config::kI2cSclGpio, app_config::kI2cClockHz);
 
-    err = i2c_master_probe(bus_handle_, kBme680Address, kI2cTimeoutMs);
+    err = i2c_master_probe(bus_handle_, app_config::kBme680I2cAddress, app_config::kI2cTimeoutMs);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "BME680 not detected at address 0x%02X: %s",
-                 kBme680Address, esp_err_to_name(err));
+                 app_config::kBme680I2cAddress, esp_err_to_name(err));
         cleanup();
         return err;
     }
 
     i2c_device_config_t device_config = {};
     device_config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
-    device_config.device_address = kBme680Address;
-    device_config.scl_speed_hz = kI2cClockHz;
+    device_config.device_address = app_config::kBme680I2cAddress;
+    device_config.scl_speed_hz = app_config::kI2cClockHz;
 
     err = i2c_master_bus_add_device(bus_handle_, &device_config, &device_handle_);
     if (err != ESP_OK) {
@@ -129,9 +124,13 @@ esp_err_t Bme680Sensor::read_sample(Bme680Sample &sample)
     bme68x_data data = {};
     uint8_t data_count = 0;
     status = bme68x_get_data(BME68X_FORCED_MODE, &data, &data_count, &dev_);
-    if (status != BME68X_OK || data_count == 0) {
+    if (status != BME68X_OK) {
         ESP_LOGW(TAG, "No BME680 sample available: status %d, count %u", status, data_count);
         return bme68x_status_to_esp_err(status);
+    }
+    if (data_count == 0) {
+        ESP_LOGW(TAG, "No BME680 sample available: status %d, count %u", status, data_count);
+        return ESP_ERR_NOT_FOUND;
     }
 
     sample.temperature_c = data.temperature;
@@ -165,7 +164,12 @@ esp_err_t Bme680Sensor::read_register(uint8_t reg_addr, uint8_t *data, uint32_t 
         return ESP_ERR_INVALID_ARG;
     }
 
-    return i2c_master_transmit_receive(device_handle_, &reg_addr, sizeof(reg_addr), data, len, kI2cTimeoutMs);
+    return i2c_master_transmit_receive(device_handle_,
+                                       &reg_addr,
+                                       sizeof(reg_addr),
+                                       data,
+                                       len,
+                                       app_config::kI2cTimeoutMs);
 }
 
 esp_err_t Bme680Sensor::write_register(uint8_t reg_addr, const uint8_t *reg_data, uint32_t len)
@@ -180,7 +184,7 @@ esp_err_t Bme680Sensor::write_register(uint8_t reg_addr, const uint8_t *reg_data
         buffer[i + 1] = reg_data[i];
     }
 
-    return i2c_master_transmit(device_handle_, buffer, len + 1, kI2cTimeoutMs);
+    return i2c_master_transmit(device_handle_, buffer, len + 1, app_config::kI2cTimeoutMs);
 }
 
 void Bme680Sensor::cleanup()

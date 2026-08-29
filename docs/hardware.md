@@ -33,8 +33,8 @@ GPIO4 and GPIO5 are the documented initial SDA/SCL pins for this project.
 Do not move I2C to GPIO8/GPIO9 on the ESP32-C3 SuperMini without checking the
 specific board variant and boot/strapping implications.
 
-I2C initialization should be centralized in firmware once the BME680 driver is
-introduced, so Matter and MQTT code never access the bus directly.
+I2C initialization is centralized in the BME680 sensor layer. Matter and MQTT
+code should consume sensor snapshots and must not access the bus directly.
 
 ## Initial Firmware Check
 

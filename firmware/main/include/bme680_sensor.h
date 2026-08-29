@@ -5,12 +5,7 @@
 #include "bme68x.h"
 #include "driver/i2c_types.h"
 #include "esp_err.h"
-
-struct Bme680Sample {
-    float temperature_c;
-    float humidity_percent;
-    float pressure_hpa;
-};
+#include "sensor_sample.h"
 
 class Bme680Sensor {
 public:

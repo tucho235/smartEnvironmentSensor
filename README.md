@@ -150,6 +150,11 @@ La aplicación se dividirá conceptualmente en varias capas:
 
 La lectura del sensor y la comunicación Matter/MQTT deben mantenerse desacopladas.
 
+Actualmente, el muestreo del BME680 corre en una tarea FreeRTOS dedicada
+(`sensor_task`). Esa tarea mantiene una última muestra protegida por mutex para
+que las futuras capas Matter y MQTT puedan leer datos físicos sin acceder al bus
+I²C ni al driver BME680 directamente.
+
 ---
 
 # Matter
@@ -185,7 +190,7 @@ Como configuración inicial se considera un intervalo de aproximadamente:
 2-5 segundos
 ```
 
-El intervalo definitivo será configurable y podrá modificarse durante la optimización del firmware.
+El intervalo inicial está centralizado en `app_config.h` y actualmente es de 3 segundos.
 
 La frecuencia de lectura del sensor no necesariamente será igual a la frecuencia de publicación MQTT o de reporting Matter.
 
@@ -203,7 +208,9 @@ Sensor data
    └──► MQTT telemetry
 ```
 
-La estrategia definitiva de reporting será definida durante el desarrollo.
+La estrategia definitiva de reporting será definida durante el desarrollo. Matter
+y MQTT deberán consumir la última muestra disponible desde la capa de servicio
+del sensor.
 
 ---
 
@@ -348,14 +355,28 @@ Una posible futura representación Matter será mediante un dispositivo/cluster 
 
 # Project Structure
 
-La estructura actual incluye una base mínima ESP-IDF y la documentación inicial de hardware:
+La estructura actual incluye la base ESP-IDF, el driver BME680 y una capa de servicio de sensor:
 
 ```text
 smartEnvironmentSensor/
 │
 ├── firmware/
+│   ├── components/
+│   │   └── bme68x/
+│   │       ├── bme68x.c
+│   │       ├── bme68x.h
+│   │       ├── bme68x_defs.h
+│   │       ├── CMakeLists.txt
+│   │       └── README.md
 │   ├── main/
 │   │   ├── app_main.cpp
+│   │   ├── bme680_sensor.cpp
+│   │   ├── sensor_service.cpp
+│   │   ├── include/
+│   │   │   ├── app_config.h
+│   │   │   ├── bme680_sensor.h
+│   │   │   ├── sensor_sample.h
+│   │   │   └── sensor_service.h
 │   │   └── CMakeLists.txt
 │   ├── CMakeLists.txt
 │   └── sdkconfig.defaults
@@ -371,7 +392,7 @@ smartEnvironmentSensor/
 └── LICENSE
 ```
 
-Los módulos de BME680, Matter y MQTT se agregarán de forma incremental cuando se implemente cada etapa. La base actual solo inicializa la aplicación y registra las decisiones de hardware iniciales.
+Los módulos Matter y MQTT se agregarán de forma incremental sobre la capa de servicio del sensor. Esa capa mantiene a las interfaces de red desacopladas del acceso I²C.
 
 ---
 
@@ -451,9 +472,9 @@ idf.py flash monitor
 * [x] Confirmar módulo BME680 con pines VCC/GND/SCL/SDA/SDO/CS.
 * [x] Definir GPIO I²C iniciales: SDA GPIO4, SCL GPIO5.
 * [x] Documentar cableado inicial del BME680.
-* [ ] Verificar alimentación de 3.3 V.
+* [x] Verificar alimentación de 3.3 V.
 * [x] Agregar prueba inicial de comunicación I²C con lectura de chip ID.
-* [ ] Probar comunicación I²C en hardware.
+* [x] Probar comunicación I²C en hardware.
 
 ## Phase 2 — BME680
 
@@ -461,6 +482,8 @@ idf.py flash monitor
 * [x] Leer temperatura.
 * [x] Leer humedad.
 * [x] Leer presión.
+* [x] Mover muestreo a `sensor_task`.
+* [x] Exponer última muestra mediante snapshot protegido por mutex.
 * [ ] Leer resistencia del gas.
 * [ ] Implementar manejo de errores.
 * [x] Implementar configuración inicial de oversampling/filter para T/P/H.
