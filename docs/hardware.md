@@ -35,3 +35,19 @@ specific board variant and boot/strapping implications.
 
 I2C initialization should be centralized in firmware once the BME680 driver is
 introduced, so Matter and MQTT code never access the bus directly.
+
+## Initial Firmware Check
+
+The firmware initializes I2C on GPIO4/GPIO5, initializes the Bosch BME68x
+Sensor API, and reads temperature, relative humidity, and pressure in forced
+mode.
+
+Expected success log:
+
+```text
+BME680 initialized and configured
+BME680 sample: temperature=... C, humidity=... %, pressure=... hPa
+```
+
+If the device is not detected, re-check power, ground, SDA/SCL placement, `SDO`
+to ground, and `CS` to 3V3.

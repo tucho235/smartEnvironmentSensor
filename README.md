@@ -452,17 +452,19 @@ idf.py flash monitor
 * [x] Definir GPIO I²C iniciales: SDA GPIO4, SCL GPIO5.
 * [x] Documentar cableado inicial del BME680.
 * [ ] Verificar alimentación de 3.3 V.
-* [ ] Probar comunicación I²C.
+* [x] Agregar prueba inicial de comunicación I²C con lectura de chip ID.
+* [ ] Probar comunicación I²C en hardware.
 
 ## Phase 2 — BME680
 
-* [ ] Integrar driver BME680.
-* [ ] Leer temperatura.
-* [ ] Leer humedad.
-* [ ] Leer presión.
+* [x] Integrar driver BME680 usando Bosch BME68x Sensor API.
+* [x] Leer temperatura.
+* [x] Leer humedad.
+* [x] Leer presión.
 * [ ] Leer resistencia del gas.
 * [ ] Implementar manejo de errores.
-* [ ] Implementar configuración de oversampling/filter/heater.
+* [x] Implementar configuración inicial de oversampling/filter para T/P/H.
+* [ ] Implementar configuración de heater para gas.
 
 ## Phase 3 — Matter
 
