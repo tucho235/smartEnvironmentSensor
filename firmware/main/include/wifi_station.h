@@ -4,3 +4,4 @@
 
 esp_err_t wifi_station_start();
 bool wifi_station_is_connected();
+bool wifi_station_is_provisioning_active();

@@ -8,13 +8,23 @@ the Raspberry Pi. The ESP32 must not connect directly to InfluxDB.
 MQTT is optional at runtime. If no broker URI is configured, the firmware keeps
 sampling the BME680 and skips MQTT startup.
 
+The firmware stores MQTT configuration in NVS under the application namespace.
+Normal firmware flashes do not erase this configuration.
+
 When MQTT is configured, the telemetry module waits until Wi-Fi has an IP
 address before starting the MQTT client. This avoids an expected initial broker
 connection failure during boot while Wi-Fi is still associating.
 
-## Configuration
+## Configuration Sources
 
-Configure the local broker connection:
+The preferred runtime configuration path is BLE provisioning custom data during
+initial device provisioning.
+
+For migration and local development, the firmware can also seed MQTT NVS
+configuration from `idf.py menuconfig` if NVS does not already contain a broker
+URI.
+
+Configure bootstrap values:
 
 ```bash
 cd firmware
@@ -30,9 +40,9 @@ Smart Environment Sensor Configuration
 Set:
 
 ```text
-MQTT broker URI
-MQTT username
-MQTT password
+MQTT broker URI bootstrap
+MQTT username bootstrap
+MQTT password bootstrap
 MQTT telemetry topic
 MQTT telemetry publish interval in milliseconds
 ```
@@ -45,6 +55,39 @@ mqtt://192.168.3.10:1883
 
 The MQTT username and password are written to local `firmware/sdkconfig`, which
 is ignored by Git. Do not add broker credentials to `sdkconfig.defaults`.
+
+After the first successful boot, the firmware stores these values in NVS. Future
+normal flashes can keep using the NVS copy without recompiling credentials into
+the firmware.
+
+## BLE Provisioning Payload
+
+During first Wi-Fi provisioning, the firmware exposes two BLE provisioning
+endpoints for MQTT configuration:
+
+```text
+mqtt-config
+custom-data
+```
+
+Both endpoints accept the same JSON payload:
+
+```json
+{
+  "broker_uri": "mqtt://192.168.3.10:1883",
+  "username": "esp32",
+  "password": "YOUR_PASSWORD",
+  "topic": "smart-environment-sensor/bme680/state",
+  "publish_interval_ms": 10000
+}
+```
+
+Only `broker_uri` is required when no previous MQTT configuration exists.
+Omitted optional fields keep their existing value or fall back to the project
+defaults.
+
+The `custom-data` endpoint is compatible with Espressif's `esp_prov.py`
+`--custom_data` option.
 
 ## Topic
 

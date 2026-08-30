@@ -24,32 +24,37 @@ menu "Smart Environment Sensor Configuration"
             testing newly received Wi-Fi credentials.
 
     config APP_MQTT_BROKER_URI
-        string "MQTT broker URI"
+        string "MQTT broker URI bootstrap"
         default ""
         help
-            Local MQTT broker URI, for example mqtt://192.168.3.10:1883.
-            Leave empty to keep MQTT telemetry disabled. This value is written
-            to sdkconfig, which is ignored by Git.
+            Optional bootstrap MQTT broker URI, for example
+            mqtt://192.168.3.10:1883. If MQTT configuration is not present in
+            NVS, the firmware seeds NVS from this local sdkconfig value. Leave
+            empty for BLE/runtime-only configuration.
 
     config APP_MQTT_USERNAME
-        string "MQTT username"
+        string "MQTT username bootstrap"
         default ""
         help
-            Optional MQTT username. This value is written to sdkconfig, which is
-            ignored by Git. Do not add credentials to sdkconfig.defaults.
+            Optional bootstrap MQTT username. This value is written to the local
+            sdkconfig file, which is ignored by Git. Do not add credentials to
+            sdkconfig.defaults.
 
     config APP_MQTT_PASSWORD
-        string "MQTT password"
+        string "MQTT password bootstrap"
         default ""
         help
-            Optional MQTT password. This value is written to sdkconfig, which is
-            ignored by Git. Do not add credentials to sdkconfig.defaults.
+            Optional bootstrap MQTT password. This value is written to the local
+            sdkconfig file, which is ignored by Git. Do not add credentials to
+            sdkconfig.defaults.
 
     config APP_MQTT_TELEMETRY_TOPIC
-        string "MQTT telemetry topic"
+        string "Default MQTT telemetry topic"
         default "smart-environment-sensor/bme680/state"
         help
-            Topic used for periodic BME680 telemetry snapshots.
+            Default topic used for periodic BME680 telemetry snapshots. This is
+            also used when MQTT configuration is received without an explicit
+            topic.
 
     config APP_MQTT_PUBLISH_INTERVAL_MS
         int "MQTT telemetry publish interval in milliseconds"

@@ -11,6 +11,7 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
+#include "mqtt_config.h"
 #include "network_provisioning/manager.h"
 #include "network_provisioning/scheme_ble.h"
 #include "protocomm_ble.h"
@@ -19,6 +20,8 @@
 
 namespace {
 constexpr const char *TAG = "wifi";
+constexpr const char *kMqttConfigEndpoint = "mqtt-config";
+constexpr const char *kCustomDataEndpoint = "custom-data";
 constexpr int64_t kReconnectDelayUs = 5 * 1000 * 1000;
 constexpr size_t kServiceNameMaxLength = 16;
 
@@ -26,6 +29,37 @@ esp_timer_handle_t s_reconnect_timer = nullptr;
 bool s_started = false;
 bool s_provisioning_active = false;
 std::atomic<bool> s_connected{false};
+
+esp_err_t mqtt_config_prov_data_handler(uint32_t, const uint8_t *inbuf, ssize_t inlen,
+                                        uint8_t **outbuf, ssize_t *outlen, void *)
+{
+    constexpr const char *success_response = "{\"status\":\"ok\"}";
+    constexpr const char *error_response = "{\"status\":\"error\"}";
+
+    const char *response = success_response;
+    esp_err_t err = ESP_OK;
+
+    if (inbuf == nullptr || inlen <= 0) {
+        err = ESP_ERR_INVALID_ARG;
+        response = error_response;
+    } else {
+        err = mqtt_config_save_json(reinterpret_cast<const char *>(inbuf), static_cast<size_t>(inlen));
+        if (err == ESP_OK) {
+            ESP_LOGI(TAG, "Received MQTT configuration over BLE provisioning");
+        } else {
+            ESP_LOGW(TAG, "Failed to store MQTT configuration from BLE provisioning: %s", esp_err_to_name(err));
+            response = error_response;
+        }
+    }
+
+    *outbuf = reinterpret_cast<uint8_t *>(strdup(response));
+    if (*outbuf == nullptr) {
+        return ESP_ERR_NO_MEM;
+    }
+    *outlen = std::strlen(response) + 1;
+
+    return ESP_OK;
+}
 
 void reconnect_timer_callback(void *)
 {
@@ -239,6 +273,7 @@ void log_provisioning_instructions(const char *service_name)
 {
     ESP_LOGI(TAG, "Provision from the Espressif BLE provisioning app");
     ESP_LOGI(TAG, "BLE provisioning device name: %s", service_name);
+    ESP_LOGI(TAG, "MQTT BLE provisioning endpoints: %s, %s", kMqttConfigEndpoint, kCustomDataEndpoint);
     if (proof_of_possession() == nullptr) {
         ESP_LOGI(TAG,
                  "QR payload: {\"ver\":\"v1\",\"name\":\"%s\",\"transport\":\"ble\",\"network\":\"wifi\"}",
@@ -300,6 +335,20 @@ esp_err_t start_ble_provisioning()
     char service_name[kServiceNameMaxLength] = {};
     get_provisioning_service_name(service_name, sizeof(service_name));
 
+    err = network_prov_mgr_endpoint_create(kMqttConfigEndpoint);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create MQTT provisioning endpoint: %s", esp_err_to_name(err));
+        network_prov_mgr_deinit();
+        return err;
+    }
+
+    err = network_prov_mgr_endpoint_create(kCustomDataEndpoint);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to create custom data provisioning endpoint: %s", esp_err_to_name(err));
+        network_prov_mgr_deinit();
+        return err;
+    }
+
     const char *pop = proof_of_possession();
     network_prov_security_t security = NETWORK_PROV_SECURITY_1;
 
@@ -313,6 +362,20 @@ esp_err_t start_ble_provisioning()
     }
 
     log_provisioning_instructions(service_name);
+    err = network_prov_mgr_endpoint_register(kMqttConfigEndpoint, mqtt_config_prov_data_handler, nullptr);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register MQTT provisioning endpoint: %s", esp_err_to_name(err));
+        network_prov_mgr_deinit();
+        return err;
+    }
+
+    err = network_prov_mgr_endpoint_register(kCustomDataEndpoint, mqtt_config_prov_data_handler, nullptr);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register custom data provisioning endpoint: %s", esp_err_to_name(err));
+        network_prov_mgr_deinit();
+        return err;
+    }
+
     return ESP_OK;
 }
 } // namespace
@@ -344,4 +407,9 @@ esp_err_t wifi_station_start()
 bool wifi_station_is_connected()
 {
     return s_connected;
+}
+
+bool wifi_station_is_provisioning_active()
+{
+    return s_provisioning_active;
 }

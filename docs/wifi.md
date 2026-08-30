@@ -28,6 +28,15 @@ Use the Espressif BLE provisioning app or a compatible provisioning client.
 Search for the BLE device name printed in the serial monitor and send the local
 Wi-Fi SSID/password from the app.
 
+The firmware also exposes MQTT configuration endpoints during BLE provisioning:
+
+```text
+mqtt-config
+custom-data
+```
+
+See `docs/mqtt.md` for the JSON payload.
+
 Expected successful provisioning log:
 
 ```text

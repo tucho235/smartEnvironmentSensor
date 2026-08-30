@@ -371,12 +371,14 @@ smartEnvironmentSensor/
 │   ├── main/
 │   │   ├── app_main.cpp
 │   │   ├── bme680_sensor.cpp
+│   │   ├── mqtt_config.cpp
 │   │   ├── mqtt_telemetry.cpp
 │   │   ├── sensor_service.cpp
 │   │   ├── wifi_station.cpp
 │   │   ├── include/
 │   │   │   ├── app_config.h
 │   │   │   ├── bme680_sensor.h
+│   │   │   ├── mqtt_config.h
 │   │   │   ├── mqtt_telemetry.h
 │   │   │   ├── sensor_sample.h
 │   │   │   ├── sensor_service.h
@@ -457,20 +459,24 @@ Git.
 
 No se deben agregar SSID/password ni proofs of possession a `sdkconfig.defaults`.
 
-MQTT se configura también con valores locales en `idf.py menuconfig`:
+MQTT guarda su configuración en NVS. Como mecanismo de bootstrap o migración,
+también puede tomar valores locales desde `idf.py menuconfig`:
 
 ```text
 Smart Environment Sensor Configuration
 ```
 
-Setear `MQTT broker URI`, `MQTT username`, `MQTT password` y, si hace falta,
-`MQTT telemetry topic`. Si `MQTT broker URI` queda vacío, la telemetría MQTT no
-arranca y el sensor sigue funcionando normalmente.
+Setear `MQTT broker URI bootstrap`, `MQTT username bootstrap`, `MQTT password
+bootstrap` y, si hace falta, `Default MQTT telemetry topic`. Si no existe
+configuración MQTT en NVS y el broker URI bootstrap queda vacío, la telemetría
+MQTT espera configuración y el sensor sigue funcionando normalmente.
 
 Cuando MQTT está configurado, el cliente espera a que Wi-Fi obtenga IP antes de
 conectar al broker.
 
-No se deben agregar credenciales MQTT a `sdkconfig.defaults`.
+Durante el provisioning BLE inicial también se puede enviar configuración MQTT
+como JSON al endpoint `mqtt-config` o `custom-data`. No se deben agregar
+credenciales MQTT a `sdkconfig.defaults`.
 
 Flashear:
 

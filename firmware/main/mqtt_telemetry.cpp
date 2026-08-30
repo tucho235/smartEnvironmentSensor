@@ -10,6 +10,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "mqtt_config.h"
 #include "mqtt_client.h"
 #include "sdkconfig.h"
 #include "sensor_service.h"
@@ -25,18 +26,15 @@ constexpr size_t kPayloadBufferSize = 192;
 
 esp_mqtt_client_handle_t s_client = nullptr;
 TaskHandle_t s_publish_task_handle = nullptr;
+MqttConfig s_config = {};
 std::atomic<bool> s_started{false};
 std::atomic<bool> s_connected{false};
 std::atomic<bool> s_client_started{false};
+std::atomic<bool> s_configuration_logged_missing{false};
 
 const char *nullable_config_string(const char *value)
 {
     return std::strlen(value) == 0 ? nullptr : value;
-}
-
-bool mqtt_configured()
-{
-    return std::strlen(CONFIG_APP_MQTT_BROKER_URI) > 0;
 }
 
 void mqtt_event_handler(void *, esp_event_base_t, int32_t event_id, void *event_data)
@@ -139,6 +137,76 @@ esp_err_t register_network_events()
     return ESP_OK;
 }
 
+uint32_t publish_interval_ms()
+{
+    return s_config.publish_interval_ms == 0 ? CONFIG_APP_MQTT_PUBLISH_INTERVAL_MS : s_config.publish_interval_ms;
+}
+
+esp_err_t initialize_mqtt_client_from_config()
+{
+    if (s_client != nullptr) {
+        return ESP_OK;
+    }
+
+    esp_err_t err = mqtt_config_load(s_config);
+    if (err == ESP_ERR_NOT_FOUND && !wifi_station_is_provisioning_active()) {
+        err = mqtt_config_seed_from_kconfig_if_empty();
+        if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+            ESP_LOGW(TAG, "Failed to seed MQTT configuration from sdkconfig: %s", esp_err_to_name(err));
+        }
+        if (err == ESP_OK) {
+            err = mqtt_config_load(s_config);
+        }
+    }
+
+    if (err == ESP_ERR_NOT_FOUND) {
+        bool expected = false;
+        if (s_configuration_logged_missing.compare_exchange_strong(expected, true)) {
+            ESP_LOGW(TAG, "MQTT telemetry waiting for configuration over BLE provisioning or idf.py menuconfig");
+        }
+        return err;
+    }
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to load MQTT configuration: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    esp_mqtt_client_config_t mqtt_config = {};
+    mqtt_config.broker.address.uri = s_config.broker_uri;
+    mqtt_config.credentials.username = nullable_config_string(s_config.username);
+    mqtt_config.credentials.authentication.password = nullable_config_string(s_config.password);
+    mqtt_config.network.reconnect_timeout_ms = CONFIG_APP_MQTT_RECONNECT_INTERVAL_MS;
+    mqtt_config.network.timeout_ms = kMqttNetworkTimeoutMs;
+    mqtt_config.session.keepalive = kMqttKeepaliveSeconds;
+
+    s_client = esp_mqtt_client_init(&mqtt_config);
+    if (s_client == nullptr) {
+        ESP_LOGE(TAG, "Failed to initialize MQTT client");
+        return ESP_FAIL;
+    }
+
+    err = esp_mqtt_client_register_event(s_client,
+                                         MQTT_EVENT_ANY,
+                                         mqtt_event_handler,
+                                         nullptr);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to register MQTT event handler: %s", esp_err_to_name(err));
+        esp_mqtt_client_destroy(s_client);
+        s_client = nullptr;
+        return err;
+    }
+
+    ESP_LOGI(TAG, "MQTT telemetry configured: topic=%s, interval=%lu ms",
+             s_config.topic,
+             static_cast<unsigned long>(s_config.publish_interval_ms));
+
+    if (wifi_station_is_connected()) {
+        ESP_RETURN_ON_ERROR(start_mqtt_client_if_needed(), TAG, "Failed to start MQTT client");
+    }
+
+    return ESP_OK;
+}
+
 esp_err_t format_payload(const SensorSnapshot &snapshot, char *payload, size_t payload_size, int &payload_length)
 {
     int written = std::snprintf(payload,
@@ -173,7 +241,7 @@ void publish_latest_snapshot()
     }
 
     int msg_id = esp_mqtt_client_enqueue(s_client,
-                                         CONFIG_APP_MQTT_TELEMETRY_TOPIC,
+                                         s_config.topic,
                                          payload,
                                          payload_length,
                                          0,
@@ -192,11 +260,18 @@ void publish_latest_snapshot()
 void mqtt_publish_task(void *)
 {
     while (true) {
+        if (s_client == nullptr) {
+            esp_err_t err = initialize_mqtt_client_from_config();
+            if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+                ESP_LOGW(TAG, "MQTT telemetry remains disabled: %s", esp_err_to_name(err));
+            }
+        }
+
         if (s_connected && s_client != nullptr) {
             publish_latest_snapshot();
         }
 
-        vTaskDelay(pdMS_TO_TICKS(CONFIG_APP_MQTT_PUBLISH_INTERVAL_MS));
+        vTaskDelay(pdMS_TO_TICKS(publish_interval_ms()));
     }
 }
 
@@ -223,58 +298,24 @@ esp_err_t mqtt_telemetry_start()
         return ESP_ERR_INVALID_STATE;
     }
 
-    if (!mqtt_configured()) {
-        ESP_LOGW(TAG, "MQTT telemetry disabled; configure APP_MQTT_BROKER_URI with idf.py menuconfig");
-        return ESP_ERR_INVALID_STATE;
-    }
-
-    esp_mqtt_client_config_t mqtt_config = {};
-    mqtt_config.broker.address.uri = CONFIG_APP_MQTT_BROKER_URI;
-    mqtt_config.credentials.username = nullable_config_string(CONFIG_APP_MQTT_USERNAME);
-    mqtt_config.credentials.authentication.password = nullable_config_string(CONFIG_APP_MQTT_PASSWORD);
-    mqtt_config.network.reconnect_timeout_ms = CONFIG_APP_MQTT_RECONNECT_INTERVAL_MS;
-    mqtt_config.network.timeout_ms = kMqttNetworkTimeoutMs;
-    mqtt_config.session.keepalive = kMqttKeepaliveSeconds;
-
-    s_client = esp_mqtt_client_init(&mqtt_config);
-    if (s_client == nullptr) {
-        ESP_LOGE(TAG, "Failed to initialize MQTT client");
-        return ESP_FAIL;
-    }
-
-    esp_err_t err = esp_mqtt_client_register_event(s_client,
-                                                   MQTT_EVENT_ANY,
-                                                   mqtt_event_handler,
-                                                   nullptr);
+    esp_err_t err = register_network_events();
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to register MQTT event handler: %s", esp_err_to_name(err));
-        esp_mqtt_client_destroy(s_client);
-        s_client = nullptr;
         return err;
     }
 
     err = create_publish_task();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to create MQTT telemetry task: %s", esp_err_to_name(err));
-        esp_mqtt_client_destroy(s_client);
-        s_client = nullptr;
-        return err;
-    }
-
-    err = register_network_events();
-    if (err != ESP_OK) {
-        esp_mqtt_client_destroy(s_client);
-        s_client = nullptr;
         return err;
     }
 
     s_started = true;
-    ESP_LOGI(TAG, "MQTT telemetry waiting for Wi-Fi: topic=%s, interval=%d ms",
-             CONFIG_APP_MQTT_TELEMETRY_TOPIC,
-             CONFIG_APP_MQTT_PUBLISH_INTERVAL_MS);
+    ESP_LOGI(TAG, "MQTT telemetry service started");
 
-    if (wifi_station_is_connected()) {
-        ESP_RETURN_ON_ERROR(start_mqtt_client_if_needed(), TAG, "Failed to start MQTT client");
+    err = initialize_mqtt_client_from_config();
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+        ESP_LOGE(TAG, "Failed to initialize MQTT telemetry: %s", esp_err_to_name(err));
+        return err;
     }
 
     return ESP_OK;
