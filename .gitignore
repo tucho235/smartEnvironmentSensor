@@ -11,6 +11,9 @@ eim_config.toml
 # Local configuration and secrets
 *.local
 *.secret
+.env
+.env.*
+!.env.example
 secrets/
 credentials/
 

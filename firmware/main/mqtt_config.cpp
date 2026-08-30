@@ -16,6 +16,7 @@ constexpr const char *kUsernameKey = "user";
 constexpr const char *kPasswordKey = "pass";
 constexpr const char *kTopicKey = "topic";
 constexpr const char *kPublishIntervalKey = "pub_ms";
+constexpr const char *kEnabledKey = "enabled";
 
 bool copy_string(char *destination, size_t destination_size, const char *source)
 {
@@ -68,6 +69,7 @@ const cJSON *optional_json_string(const cJSON *root, const char *key)
 
 esp_err_t load_kconfig(MqttConfig &config)
 {
+    config.enabled = true;
     if (!copy_string(config.broker_uri, sizeof(config.broker_uri), CONFIG_APP_MQTT_BROKER_URI) ||
         !copy_string(config.username, sizeof(config.username), CONFIG_APP_MQTT_USERNAME) ||
         !copy_string(config.password, sizeof(config.password), CONFIG_APP_MQTT_PASSWORD) ||
@@ -82,12 +84,13 @@ esp_err_t load_kconfig(MqttConfig &config)
 
 bool mqtt_config_is_enabled(const MqttConfig &config)
 {
-    return std::strlen(config.broker_uri) > 0;
+    return config.enabled && std::strlen(config.broker_uri) > 0;
 }
 
 esp_err_t mqtt_config_load(MqttConfig &config)
 {
     config = {};
+    config.enabled = true;
     config.publish_interval_ms = CONFIG_APP_MQTT_PUBLISH_INTERVAL_MS;
     if (!copy_string(config.topic, sizeof(config.topic), CONFIG_APP_MQTT_TELEMETRY_TOPIC)) {
         return ESP_ERR_INVALID_SIZE;
@@ -113,6 +116,15 @@ esp_err_t mqtt_config_load(MqttConfig &config)
         err = get_string(handle, kTopicKey, config.topic, sizeof(config.topic));
     }
     if (err == ESP_OK) {
+        uint8_t enabled = 1;
+        esp_err_t enabled_err = nvs_get_u8(handle, kEnabledKey, &enabled);
+        if (enabled_err == ESP_OK) {
+            config.enabled = enabled != 0;
+        } else if (enabled_err != ESP_ERR_NVS_NOT_FOUND) {
+            err = enabled_err;
+        }
+    }
+    if (err == ESP_OK) {
         uint32_t publish_interval_ms = 0;
         esp_err_t interval_err = nvs_get_u32(handle, kPublishIntervalKey, &publish_interval_ms);
         if (interval_err == ESP_OK && publish_interval_ms > 0) {
@@ -128,12 +140,16 @@ esp_err_t mqtt_config_load(MqttConfig &config)
         return err;
     }
 
+    if (!config.enabled) {
+        return ESP_OK;
+    }
+
     return mqtt_config_is_enabled(config) ? ESP_OK : ESP_ERR_NOT_FOUND;
 }
 
 esp_err_t mqtt_config_save(const MqttConfig &config)
 {
-    if (!mqtt_config_is_enabled(config)) {
+    if (config.enabled && !mqtt_config_is_enabled(config)) {
         return ESP_ERR_INVALID_ARG;
     }
     if (std::strlen(config.topic) == 0 || config.publish_interval_ms == 0) {
@@ -160,6 +176,9 @@ esp_err_t mqtt_config_save(const MqttConfig &config)
         err = nvs_set_u32(handle, kPublishIntervalKey, config.publish_interval_ms);
     }
     if (err == ESP_OK) {
+        err = nvs_set_u8(handle, kEnabledKey, config.enabled ? 1 : 0);
+    }
+    if (err == ESP_OK) {
         err = nvs_commit(handle);
     }
 
@@ -183,6 +202,15 @@ esp_err_t mqtt_config_save_json(const char *json, size_t length)
     esp_err_t err = mqtt_config_load(config);
     if (err != ESP_OK) {
         err = load_kconfig(config);
+    }
+
+    const cJSON *enabled = cJSON_GetObjectItemCaseSensitive(root, "enabled");
+    if (err == ESP_OK && enabled != nullptr) {
+        if (!cJSON_IsBool(enabled)) {
+            err = ESP_ERR_INVALID_ARG;
+        } else {
+            config.enabled = cJSON_IsTrue(enabled);
+        }
     }
 
     const cJSON *broker_uri = optional_json_string(root, "broker_uri");

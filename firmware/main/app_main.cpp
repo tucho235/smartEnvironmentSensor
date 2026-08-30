@@ -1,3 +1,4 @@
+#include "config_portal.h"
 #include "mqtt_telemetry.h"
 #include "sensor_service.h"
 #include "wifi_station.h"
@@ -56,5 +57,14 @@ extern "C" void app_main(void)
         ESP_LOGI(TAG, "MQTT telemetry not started; configure broker URI to enable it");
     } else {
         ESP_LOGW(TAG, "MQTT telemetry not started: %s", esp_err_to_name(err));
+    }
+
+    err = config_portal_start();
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "Configuration portal start requested");
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        ESP_LOGI(TAG, "Configuration portal already started");
+    } else {
+        ESP_LOGW(TAG, "Configuration portal not started: %s", esp_err_to_name(err));
     }
 }

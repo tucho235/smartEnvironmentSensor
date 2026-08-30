@@ -45,6 +45,15 @@ Wi-Fi provisioning successful
 Wi-Fi connected, IP=...
 ```
 
+After Wi-Fi connects, the firmware starts the local configuration portal:
+
+```text
+Configuration portal started on http://<device-ip>/
+```
+
+Open the printed IP in a browser to configure MQTT without recompiling the
+firmware.
+
 The credentials are stored by ESP-IDF Wi-Fi in NVS. Future boots reuse the saved
 credentials automatically.
 

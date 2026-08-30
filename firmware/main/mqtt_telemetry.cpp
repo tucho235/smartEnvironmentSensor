@@ -31,6 +31,7 @@ std::atomic<bool> s_started{false};
 std::atomic<bool> s_connected{false};
 std::atomic<bool> s_client_started{false};
 std::atomic<bool> s_configuration_logged_missing{false};
+std::atomic<bool> s_configuration_logged_disabled{false};
 
 const char *nullable_config_string(const char *value)
 {
@@ -100,6 +101,10 @@ esp_err_t start_mqtt_client_if_needed()
 void network_event_handler(void *, esp_event_base_t event_base, int32_t event_id, void *)
 {
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        if (s_client == nullptr) {
+            return;
+        }
+
         esp_err_t err = start_mqtt_client_if_needed();
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "MQTT client not started on Wi-Fi connect: %s", esp_err_to_name(err));
@@ -169,6 +174,14 @@ esp_err_t initialize_mqtt_client_from_config()
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to load MQTT configuration: %s", esp_err_to_name(err));
         return err;
+    }
+
+    if (!s_config.enabled) {
+        bool expected = false;
+        if (s_configuration_logged_disabled.compare_exchange_strong(expected, true)) {
+            ESP_LOGI(TAG, "MQTT telemetry disabled by configuration");
+        }
+        return ESP_ERR_INVALID_STATE;
     }
 
     esp_mqtt_client_config_t mqtt_config = {};
@@ -262,7 +275,7 @@ void mqtt_publish_task(void *)
     while (true) {
         if (s_client == nullptr) {
             esp_err_t err = initialize_mqtt_client_from_config();
-            if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+            if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_INVALID_STATE) {
                 ESP_LOGW(TAG, "MQTT telemetry remains disabled: %s", esp_err_to_name(err));
             }
         }
@@ -313,7 +326,7 @@ esp_err_t mqtt_telemetry_start()
     ESP_LOGI(TAG, "MQTT telemetry service started");
 
     err = initialize_mqtt_client_from_config();
-    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_INVALID_STATE) {
         ESP_LOGE(TAG, "Failed to initialize MQTT telemetry: %s", esp_err_to_name(err));
         return err;
     }

@@ -267,6 +267,21 @@ Las métricas previstas incluyen:
 * RSSI Wi-Fi (futuro)
 * Tiempo de actividad (futuro)
 
+El repo incluye una pila Docker Compose inicial en
+`examples/raspberry-pi/observability/` con:
+
+* InfluxDB 2 para almacenamiento histórico.
+* Telegraf leyendo el topic MQTT `smart-environment-sensor/#`.
+* Grafana con datasource y dashboard provisionados.
+
+Si la Raspberry Pi ya tiene InfluxDB y Grafana corriendo, usar la variante
+`examples/raspberry-pi/telegraf-mqtt-to-influx/`, que levanta solo Telegraf y
+escribe en la instancia existente.
+
+La guía de instalación está en `docs/raspberry-pi-observability.md`. Las
+credenciales reales se cargan en un archivo `.env` local en la Raspberry Pi y no
+se versionan.
+
 Ejemplo de dashboard:
 
 ```text
@@ -371,6 +386,7 @@ smartEnvironmentSensor/
 │   ├── main/
 │   │   ├── app_main.cpp
 │   │   ├── bme680_sensor.cpp
+│   │   ├── config_portal.cpp
 │   │   ├── mqtt_config.cpp
 │   │   ├── mqtt_telemetry.cpp
 │   │   ├── sensor_service.cpp
@@ -378,6 +394,7 @@ smartEnvironmentSensor/
 │   │   ├── include/
 │   │   │   ├── app_config.h
 │   │   │   ├── bme680_sensor.h
+│   │   │   ├── config_portal.h
 │   │   │   ├── mqtt_config.h
 │   │   │   ├── mqtt_telemetry.h
 │   │   │   ├── sensor_sample.h
@@ -397,14 +414,30 @@ smartEnvironmentSensor/
 ├── docs/
 │   ├── hardware.md
 │   ├── mqtt.md
+│   ├── raspberry-pi-observability.md
 │   └── wifi.md
+│
+├── examples/
+│   └── raspberry-pi/
+│       ├── observability/
+│           ├── docker-compose.yml
+│           ├── .env.example
+│           ├── telegraf/
+│           └── grafana/
+│       └── telegraf-mqtt-to-influx/
+│           ├── docker-compose.yml
+│           ├── .env.example
+│           └── telegraf.conf
 ├── .gitignore
 ├── README.md
 ├── AGENTS.md
 └── LICENSE
 ```
 
-Los módulos Matter y MQTT se agregarán de forma incremental sobre la capa de servicio del sensor. Esa capa mantiene a las interfaces de red desacopladas del acceso I²C.
+El sensor BME680, la capa de servicio, Wi-Fi provisioning, MQTT y el portal web
+de configuración ya están implementados de forma incremental. Matter se agregará
+sobre la misma capa de servicio para mantener las interfaces de red desacopladas
+del acceso I²C.
 
 ---
 
@@ -474,9 +507,23 @@ MQTT espera configuración y el sensor sigue funcionando normalmente.
 Cuando MQTT está configurado, el cliente espera a que Wi-Fi obtenga IP antes de
 conectar al broker.
 
-Durante el provisioning BLE inicial también se puede enviar configuración MQTT
-como JSON al endpoint `mqtt-config` o `custom-data`. No se deben agregar
+La forma recomendada de configurar MQTT es el portal web local. Después de
+provisionar Wi-Fi, abrir en un navegador la IP que aparece en el monitor serie:
+
+```text
+http://<device-ip>/
+```
+
+El portal permite activar/desactivar el servicio MQTT, y guarda `broker URI`,
+usuario, password, topic e intervalo en NVS. Si MQTT queda desactivado, el
+firmware no intenta conectar al broker ni publicar telemetría. Al guardar, el
+ESP32-C3 reinicia para aplicar la nueva configuración. No se deben agregar
 credenciales MQTT a `sdkconfig.defaults`.
+
+Durante el provisioning BLE inicial también existe soporte para enviar
+configuración MQTT como JSON al endpoint `mqtt-config` o `custom-data`, pero la
+app oficial Espressif BLE Provisioning para Android no muestra esos campos en
+su UI.
 
 Flashear:
 
@@ -552,11 +599,14 @@ idf.py flash monitor
 
 ## Phase 5 — InfluxDB / Grafana
 
-* [ ] Crear esquema de almacenamiento.
-* [ ] Registrar temperatura.
-* [ ] Registrar humedad.
-* [ ] Registrar presión.
-* [ ] Crear dashboard.
+* [x] Crear stack Docker Compose inicial.
+* [x] Definir esquema de almacenamiento preliminar.
+* [x] Configurar Telegraf para leer MQTT.
+* [x] Preparar dashboard Grafana inicial.
+* [ ] Registrar temperatura en Raspberry Pi.
+* [ ] Registrar humedad en Raspberry Pi.
+* [ ] Registrar presión en Raspberry Pi.
+* [ ] Verificar dashboard con datos reales.
 * [ ] Agregar métricas de estado.
 
 ## Phase 6 — Reliability
@@ -614,4 +664,6 @@ Actualmente están definidos:
 * MQTT como canal de telemetría.
 * InfluxDB + Grafana como plataforma de monitorización.
 
-La base ESP-IDF mínima ya existe en `firmware/`. La integración del BME680, Matter y MQTT sigue pendiente y se implementará por etapas.
+La base ESP-IDF, lectura BME680, Wi-Fi provisioning BLE, portal local de
+configuración, MQTT y el stack inicial Raspberry Pi para InfluxDB/Grafana ya
+existen. Matter sigue pendiente y se implementará por etapas.

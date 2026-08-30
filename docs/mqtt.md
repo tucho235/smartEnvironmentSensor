@@ -17,8 +17,33 @@ connection failure during boot while Wi-Fi is still associating.
 
 ## Configuration Sources
 
-The preferred runtime configuration path is BLE provisioning custom data during
-initial device provisioning.
+The preferred runtime configuration path is the local web configuration portal.
+After Wi-Fi provisioning succeeds, open the device IP printed in the serial
+monitor:
+
+```text
+http://<device-ip>/
+```
+
+The portal lets the user configure:
+
+```text
+Enable MQTT service
+Broker URI
+Username
+Password
+Telemetry topic
+Publish interval
+```
+
+The password is never rendered back into the form. Leaving the password field
+empty keeps the existing password. A dedicated checkbox clears the stored
+password. After saving, the device restarts so MQTT reconnects using the new
+settings.
+
+If `Enable MQTT service` is unchecked, the firmware keeps the stored MQTT
+settings but does not create the MQTT client, connect to the broker, or publish
+telemetry.
 
 For migration and local development, the firmware can also seed MQTT NVS
 configuration from `idf.py menuconfig` if NVS does not already contain a broker
@@ -74,6 +99,7 @@ Both endpoints accept the same JSON payload:
 
 ```json
 {
+  "enabled": true,
   "broker_uri": "mqtt://192.168.3.10:1883",
   "username": "esp32",
   "password": "YOUR_PASSWORD",
@@ -82,12 +108,17 @@ Both endpoints accept the same JSON payload:
 }
 ```
 
-Only `broker_uri` is required when no previous MQTT configuration exists.
-Omitted optional fields keep their existing value or fall back to the project
-defaults.
+Only `broker_uri` is required when MQTT is enabled and no previous MQTT
+configuration exists. Set `"enabled": false` to keep MQTT disabled without
+requiring a broker URI. Omitted optional fields keep their existing value or
+fall back to the project defaults.
 
 The `custom-data` endpoint is compatible with Espressif's `esp_prov.py`
 `--custom_data` option.
+
+The official Espressif BLE Provisioning Android app configures Wi-Fi but does
+not display custom MQTT fields. Use the web portal for the normal phone/laptop
+configuration flow.
 
 ## Topic
 
@@ -126,6 +157,10 @@ Raspberry Pi failure must not stop sensor sampling or Matter operation.
 
 The initial hardware test confirmed telemetry publishing to a Mosquitto broker
 running on the Raspberry Pi with username/password authentication.
+
+The Raspberry Pi observability stack is documented in
+`docs/raspberry-pi-observability.md`. It uses Telegraf to subscribe to MQTT,
+write the JSON fields to InfluxDB, and provision a Grafana dashboard.
 
 ## Raspberry Pi Test
 

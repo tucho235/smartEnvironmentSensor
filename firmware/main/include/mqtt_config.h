@@ -6,6 +6,7 @@
 #include "esp_err.h"
 
 struct MqttConfig {
+    bool enabled;
     char broker_uri[128];
     char username[64];
     char password[64];
