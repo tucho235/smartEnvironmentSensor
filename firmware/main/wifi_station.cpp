@@ -1,5 +1,6 @@
 #include "wifi_station.h"
 
+#include <atomic>
 #include <cstring>
 #include <cstdio>
 
@@ -24,6 +25,7 @@ constexpr size_t kServiceNameMaxLength = 16;
 esp_timer_handle_t s_reconnect_timer = nullptr;
 bool s_started = false;
 bool s_provisioning_active = false;
+std::atomic<bool> s_connected{false};
 
 void reconnect_timer_callback(void *)
 {
@@ -129,6 +131,7 @@ void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id, v
 
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         auto *event = static_cast<wifi_event_sta_disconnected_t *>(event_data);
+        s_connected = false;
         ESP_LOGW(TAG, "Wi-Fi disconnected, reason=%u; reconnecting in 5 seconds", event->reason);
         schedule_reconnect();
         return;
@@ -136,6 +139,7 @@ void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id, v
 
     if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
         auto *event = static_cast<ip_event_got_ip_t *>(event_data);
+        s_connected = true;
         esp_timer_stop(s_reconnect_timer);
         ESP_LOGI(TAG, "Wi-Fi connected, IP=" IPSTR, IP2STR(&event->ip_info.ip));
     }
@@ -335,4 +339,9 @@ esp_err_t wifi_station_start()
 
     s_started = true;
     return ESP_OK;
+}
+
+bool wifi_station_is_connected()
+{
+    return s_connected;
 }

@@ -1,3 +1,4 @@
+#include "mqtt_telemetry.h"
 #include "sensor_service.h"
 #include "wifi_station.h"
 #include "esp_check.h"
@@ -46,5 +47,14 @@ extern "C" void app_main(void)
         ESP_LOGI(TAG, "Wi-Fi station start requested");
     } else {
         ESP_LOGW(TAG, "Wi-Fi station not started: %s", esp_err_to_name(err));
+    }
+
+    err = mqtt_telemetry_start();
+    if (err == ESP_OK) {
+        ESP_LOGI(TAG, "MQTT telemetry start requested");
+    } else if (err == ESP_ERR_INVALID_STATE) {
+        ESP_LOGI(TAG, "MQTT telemetry not started; configure broker URI to enable it");
+    } else {
+        ESP_LOGW(TAG, "MQTT telemetry not started: %s", esp_err_to_name(err));
     }
 }

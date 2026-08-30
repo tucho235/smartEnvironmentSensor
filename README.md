@@ -371,11 +371,13 @@ smartEnvironmentSensor/
 │   ├── main/
 │   │   ├── app_main.cpp
 │   │   ├── bme680_sensor.cpp
+│   │   ├── mqtt_telemetry.cpp
 │   │   ├── sensor_service.cpp
 │   │   ├── wifi_station.cpp
 │   │   ├── include/
 │   │   │   ├── app_config.h
 │   │   │   ├── bme680_sensor.h
+│   │   │   ├── mqtt_telemetry.h
 │   │   │   ├── sensor_sample.h
 │   │   │   ├── sensor_service.h
 │   │   │   └── wifi_station.h
@@ -455,6 +457,21 @@ Git.
 
 No se deben agregar SSID/password ni proofs of possession a `sdkconfig.defaults`.
 
+MQTT se configura también con valores locales en `idf.py menuconfig`:
+
+```text
+Smart Environment Sensor Configuration
+```
+
+Setear `MQTT broker URI`, `MQTT username`, `MQTT password` y, si hace falta,
+`MQTT telemetry topic`. Si `MQTT broker URI` queda vacío, la telemetría MQTT no
+arranca y el sensor sigue funcionando normalmente.
+
+Cuando MQTT está configurado, el cliente espera a que Wi-Fi obtenga IP antes de
+conectar al broker.
+
+No se deben agregar credenciales MQTT a `sdkconfig.defaults`.
+
 Flashear:
 
 ```bash
@@ -520,12 +537,12 @@ idf.py flash monitor
 
 ## Phase 4 — MQTT
 
-* [ ] Implementar cliente MQTT.
+* [x] Implementar cliente MQTT.
 * [x] Definir topics preliminares.
 * [x] Definir payload preliminar.
-* [ ] Implementar reconexión.
-* [ ] Integrar con broker existente.
-* [ ] Verificar recepción desde Raspberry Pi.
+* [x] Implementar reconexión.
+* [x] Integrar con broker existente.
+* [x] Verificar recepción desde Raspberry Pi.
 
 ## Phase 5 — InfluxDB / Grafana
 
