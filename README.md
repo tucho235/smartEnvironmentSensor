@@ -1,6 +1,6 @@
 # Smart Environment Sensor
 
-Firmware para un **ESP32-C3** conectado a un sensor ambiental **Bosch BME680**, con soporte para **Matter** y telemetría mediante **MQTT** hacia una Raspberry Pi para almacenamiento histórico en **InfluxDB** y visualización mediante **Grafana**.
+Firmware para un **ESP32-C3** conectado a un sensor ambiental **Bosch BME680**, con soporte para **Matter** y telemetría mediante **MQTT** hacia un broker local.
 
 El objetivo es construir un sensor ambiental compacto, autónomo y extensible que pueda integrarse tanto en sistemas de domótica compatibles con Matter como en una infraestructura propia de monitorización.
 
@@ -61,7 +61,9 @@ ESP32-C3
                                    Grafana
 ```
 
-Matter estará orientado principalmente a la integración con domótica, mientras que MQTT permitirá almacenar mediciones históricas y realizar análisis detallados.
+Matter estará orientado principalmente a la integración con domótica. El
+firmware mide y publica por MQTT; el almacenamiento histórico y el análisis
+posterior son responsabilidad de `smartInfrastructure`.
 
 ---
 
@@ -253,34 +255,18 @@ El ESP32 no escribirá directamente en InfluxDB.
 
 ---
 
-# InfluxDB / Grafana
+# Observabilidad
 
-La Raspberry Pi será responsable del almacenamiento histórico y visualización.
+Este repositorio se ocupa del firmware: leer el BME680, publicar por MQTT y
+mantener Matter desacoplado de MQTT. La responsabilidad termina en la
+publicación del mensaje MQTT; el ESP32 no escribe directamente en InfluxDB.
 
-Las métricas previstas incluyen:
+La ingesta MQTT, el almacenamiento histórico, el provisioning de datasources y
+los dashboards están centralizados en
+[`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure).
 
-* Temperatura
-* Humedad
-* Presión
-* Resistencia del gas (futuro)
-* Estado del dispositivo
-* RSSI Wi-Fi (futuro)
-* Tiempo de actividad (futuro)
-
-El repo incluye una pila Docker Compose inicial en
-`examples/raspberry-pi/observability/` con:
-
-* InfluxDB 2 para almacenamiento histórico.
-* Telegraf leyendo el topic MQTT `smart-environment-sensor/#`.
-* Grafana con datasource y dashboard provisionados.
-
-Si la Raspberry Pi ya tiene InfluxDB y Grafana corriendo, usar la variante
-`examples/raspberry-pi/telegraf-mqtt-to-influx/`, que levanta solo Telegraf y
-escribe en la instancia existente.
-
-La guía de instalación está en `docs/raspberry-pi-observability.md`. Las
-credenciales reales se cargan en un archivo `.env` local en la Raspberry Pi y no
-se versionan.
+El tópico de telemetría es `smart-environment-sensor/bme680/state` y el payload
+contiene `temperature_c`, `humidity_percent` y `pressure_hpa`.
 
 Ejemplo de dashboard:
 
@@ -414,20 +400,8 @@ smartEnvironmentSensor/
 ├── docs/
 │   ├── hardware.md
 │   ├── mqtt.md
-│   ├── raspberry-pi-observability.md
 │   └── wifi.md
 │
-├── examples/
-│   └── raspberry-pi/
-│       ├── observability/
-│           ├── docker-compose.yml
-│           ├── .env.example
-│           ├── telegraf/
-│           └── grafana/
-│       └── telegraf-mqtt-to-influx/
-│           ├── docker-compose.yml
-│           ├── .env.example
-│           └── telegraf.conf
 ├── .gitignore
 ├── README.md
 ├── AGENTS.md
@@ -597,17 +571,15 @@ idf.py flash monitor
 * [x] Integrar con broker existente.
 * [x] Verificar recepción desde Raspberry Pi.
 
-## Phase 5 — InfluxDB / Grafana
+## Phase 5 — Integración con la infraestructura
 
-* [x] Crear stack Docker Compose inicial.
-* [x] Definir esquema de almacenamiento preliminar.
-* [x] Configurar Telegraf para leer MQTT.
-* [x] Preparar dashboard Grafana inicial.
-* [ ] Registrar temperatura en Raspberry Pi.
-* [ ] Registrar humedad en Raspberry Pi.
-* [ ] Registrar presión en Raspberry Pi.
-* [ ] Verificar dashboard con datos reales.
-* [ ] Agregar métricas de estado.
+* [x] Publicar telemetría ambiental por MQTT.
+* [x] Definir y documentar el contrato MQTT.
+* [x] Desacoplar el firmware de InfluxDB y Grafana.
+
+La ingesta, el almacenamiento, el provisioning y los dashboards se mantienen
+en el repositorio
+[`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure).
 
 ## Phase 6 — Reliability
 
@@ -662,8 +634,9 @@ Actualmente están definidos:
 * ESP-IDF como framework.
 * ESP-Matter como implementación Matter.
 * MQTT como canal de telemetría.
-* InfluxDB + Grafana como plataforma de monitorización.
+* MQTT como canal de telemetría.
 
 La base ESP-IDF, lectura BME680, Wi-Fi provisioning BLE, portal local de
-configuración, MQTT y el stack inicial Raspberry Pi para InfluxDB/Grafana ya
-existen. Matter sigue pendiente y se implementará por etapas.
+configuración y MQTT ya existen. InfluxDB, Telegraf y Grafana son responsabilidad
+de [`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure).
+Matter sigue pendiente y se implementará por etapas.

@@ -158,9 +158,10 @@ Raspberry Pi failure must not stop sensor sampling or Matter operation.
 The initial hardware test confirmed telemetry publishing to a Mosquitto broker
 running on the Raspberry Pi with username/password authentication.
 
-The Raspberry Pi observability stack is documented in
-`docs/raspberry-pi-observability.md`. It uses Telegraf to subscribe to MQTT,
-write the JSON fields to InfluxDB, and provision a Grafana dashboard.
+The Raspberry Pi observability stack is maintained in the separate
+[`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure)
+repository. It uses Telegraf to subscribe to MQTT, write the JSON fields to
+InfluxDB, and provision Grafana dashboards.
 
 ## Raspberry Pi Test
 
