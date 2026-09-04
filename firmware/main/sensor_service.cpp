@@ -7,6 +7,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "memory_diagnostics.h"
 
 namespace {
 constexpr const char *TAG = "sensor_task";
@@ -35,6 +36,8 @@ void update_snapshot(const Bme680Sample *sample, esp_err_t last_error)
 void sensor_task(void *)
 {
     Bme680Sensor sensor;
+    uint32_t samples_since_diagnostics = 0;
+    memory_diagnostics_log(TAG, "Sensor task started");
 
     while (true) {
         esp_err_t err = sensor.init();
@@ -56,6 +59,11 @@ void sensor_task(void *)
             update_snapshot(&sample, ESP_OK);
             ESP_LOGI(TAG, "BME680 sample: temperature=%.2f C, humidity=%.2f %%, pressure=%.2f hPa",
                      sample.temperature_c, sample.humidity_percent, sample.pressure_hpa);
+            samples_since_diagnostics++;
+            if (samples_since_diagnostics >= 30) {
+                samples_since_diagnostics = 0;
+                memory_diagnostics_log(TAG, "Sensor task periodic");
+            }
         } else {
             update_snapshot(nullptr, err);
             ESP_LOGW(TAG, "Failed to read BME680 sample: %s", esp_err_to_name(err));

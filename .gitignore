@@ -3,8 +3,12 @@
 
 # ESP-IDF build output
 firmware/build/
+firmware/build-*/
 firmware/managed_components/
 firmware/sdkconfig
+firmware/sdkconfig.*
+!firmware/sdkconfig.defaults
+!firmware/sdkconfig.*.defaults
 firmware/sdkconfig.old
 eim_config.toml
 

@@ -11,25 +11,33 @@
 #include "esp_netif.h"
 #include "esp_timer.h"
 #include "esp_wifi.h"
-#include "mqtt_config.h"
+#include "matter_config.h"
 #include "network_provisioning/manager.h"
 #include "network_provisioning/scheme_ble.h"
 #include "protocomm_ble.h"
 #include "protocomm_security.h"
 #include "sdkconfig.h"
 
+#if CONFIG_APP_ENABLE_MQTT_TELEMETRY
+#include "mqtt_config.h"
+#endif
+
 namespace {
 constexpr const char *TAG = "wifi";
+#if CONFIG_APP_ENABLE_MQTT_TELEMETRY
 constexpr const char *kMqttConfigEndpoint = "mqtt-config";
 constexpr const char *kCustomDataEndpoint = "custom-data";
+#endif
 constexpr int64_t kReconnectDelayUs = 5 * 1000 * 1000;
 constexpr size_t kServiceNameMaxLength = 16;
 
 esp_timer_handle_t s_reconnect_timer = nullptr;
 bool s_started = false;
 bool s_provisioning_active = false;
+bool s_matter_controls_wifi = false;
 std::atomic<bool> s_connected{false};
 
+#if CONFIG_APP_ENABLE_MQTT_TELEMETRY
 esp_err_t mqtt_config_prov_data_handler(uint32_t, const uint8_t *inbuf, ssize_t inlen,
                                         uint8_t **outbuf, ssize_t *outlen, void *)
 {
@@ -60,9 +68,14 @@ esp_err_t mqtt_config_prov_data_handler(uint32_t, const uint8_t *inbuf, ssize_t 
 
     return ESP_OK;
 }
+#endif
 
 void reconnect_timer_callback(void *)
 {
+    if (s_matter_controls_wifi) {
+        return;
+    }
+
     esp_err_t err = esp_wifi_connect();
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Wi-Fi reconnect request failed: %s", esp_err_to_name(err));
@@ -155,6 +168,11 @@ void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id, v
 
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_START) {
         ESP_LOGI(TAG, "Wi-Fi station started");
+        if (s_matter_controls_wifi) {
+            ESP_LOGI(TAG, "Matter controls Wi-Fi connection attempts");
+            return;
+        }
+
         esp_err_t err = esp_wifi_connect();
         if (err != ESP_OK) {
             ESP_LOGW(TAG, "Initial Wi-Fi connect request failed: %s", esp_err_to_name(err));
@@ -166,6 +184,11 @@ void wifi_event_handler(void *, esp_event_base_t event_base, int32_t event_id, v
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         auto *event = static_cast<wifi_event_sta_disconnected_t *>(event_data);
         s_connected = false;
+        if (s_matter_controls_wifi) {
+            ESP_LOGW(TAG, "Wi-Fi disconnected, reason=%u; Matter will manage reconnect", event->reason);
+            return;
+        }
+
         ESP_LOGW(TAG, "Wi-Fi disconnected, reason=%u; reconnecting in 5 seconds", event->reason);
         schedule_reconnect();
         return;
@@ -273,7 +296,11 @@ void log_provisioning_instructions(const char *service_name)
 {
     ESP_LOGI(TAG, "Provision from the Espressif BLE provisioning app");
     ESP_LOGI(TAG, "BLE provisioning device name: %s", service_name);
+#if CONFIG_APP_ENABLE_MQTT_TELEMETRY
     ESP_LOGI(TAG, "MQTT BLE provisioning endpoints: %s, %s", kMqttConfigEndpoint, kCustomDataEndpoint);
+#else
+    ESP_LOGI(TAG, "MQTT BLE provisioning endpoints disabled by build configuration");
+#endif
     if (proof_of_possession() == nullptr) {
         ESP_LOGI(TAG,
                  "QR payload: {\"ver\":\"v1\",\"name\":\"%s\",\"transport\":\"ble\",\"network\":\"wifi\"}",
@@ -297,15 +324,74 @@ esp_err_t start_saved_wifi()
         return err;
     }
 
+    err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to disable Wi-Fi power save: %s", esp_err_to_name(err));
+    }
+
     return ESP_OK;
+}
+
+esp_err_t start_matter_managed_wifi()
+{
+    esp_err_t err = esp_wifi_set_mode(WIFI_MODE_STA);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to set Matter-managed Wi-Fi station mode: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = esp_wifi_start();
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to start Matter-managed Wi-Fi station: %s", esp_err_to_name(err));
+        return err;
+    }
+
+    err = esp_wifi_set_ps(WIFI_PS_NONE);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to disable Matter-managed Wi-Fi power save: %s", esp_err_to_name(err));
+    }
+
+    return ESP_OK;
+}
+
+bool has_saved_wifi_credentials()
+{
+    wifi_config_t config = {};
+    esp_err_t err = esp_wifi_get_config(WIFI_IF_STA, &config);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to read saved Wi-Fi configuration: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    return config.sta.ssid[0] != '\0';
+}
+
+bool should_defer_wifi_provisioning_to_matter()
+{
+#if CONFIG_APP_ENABLE_MATTER
+    MatterConfig matter_config = {};
+    esp_err_t err = matter_config_load(matter_config);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to read Matter runtime configuration: %s", esp_err_to_name(err));
+        return false;
+    }
+
+    return matter_config.enabled;
+#else
+    return false;
+#endif
 }
 
 esp_err_t start_ble_provisioning()
 {
     network_prov_mgr_config_t prov_config = {};
     prov_config.scheme = network_prov_scheme_ble;
+#if CONFIG_APP_ENABLE_MATTER
+    prov_config.scheme_event_handler = NETWORK_PROV_EVENT_HANDLER_NONE;
+#else
     prov_config.scheme_event_handler.event_cb = network_prov_scheme_ble_event_cb_free_btdm;
     prov_config.scheme_event_handler.user_data = nullptr;
+#endif
     prov_config.app_event_handler = NETWORK_PROV_EVENT_HANDLER_NONE;
     prov_config.network_prov_wifi_conn_cfg.wifi_conn_attempts = CONFIG_APP_WIFI_PROV_MAX_ATTEMPTS;
 
@@ -335,6 +421,7 @@ esp_err_t start_ble_provisioning()
     char service_name[kServiceNameMaxLength] = {};
     get_provisioning_service_name(service_name, sizeof(service_name));
 
+#if CONFIG_APP_ENABLE_MQTT_TELEMETRY
     err = network_prov_mgr_endpoint_create(kMqttConfigEndpoint);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to create MQTT provisioning endpoint: %s", esp_err_to_name(err));
@@ -348,6 +435,7 @@ esp_err_t start_ble_provisioning()
         network_prov_mgr_deinit();
         return err;
     }
+#endif
 
     const char *pop = proof_of_possession();
     network_prov_security_t security = NETWORK_PROV_SECURITY_1;
@@ -362,6 +450,7 @@ esp_err_t start_ble_provisioning()
     }
 
     log_provisioning_instructions(service_name);
+#if CONFIG_APP_ENABLE_MQTT_TELEMETRY
     err = network_prov_mgr_endpoint_register(kMqttConfigEndpoint, mqtt_config_prov_data_handler, nullptr);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to register MQTT provisioning endpoint: %s", esp_err_to_name(err));
@@ -375,8 +464,26 @@ esp_err_t start_ble_provisioning()
         network_prov_mgr_deinit();
         return err;
     }
+#endif
 
     return ESP_OK;
+}
+
+esp_err_t start_wifi_or_provisioning()
+{
+    if (!should_defer_wifi_provisioning_to_matter()) {
+        s_matter_controls_wifi = false;
+        return start_ble_provisioning();
+    }
+
+    s_matter_controls_wifi = true;
+    if (has_saved_wifi_credentials()) {
+        ESP_LOGI(TAG, "Wi-Fi credentials already provisioned; delegating station connect to Matter");
+    } else {
+        ESP_LOGI(TAG, "Matter is enabled and Wi-Fi is not provisioned; deferring Wi-Fi setup to Matter Network Commissioning");
+    }
+
+    return start_matter_managed_wifi();
 }
 } // namespace
 
@@ -398,7 +505,7 @@ esp_err_t wifi_station_start()
     }
 
     ESP_RETURN_ON_ERROR(register_wifi_events(), TAG, "Failed to register Wi-Fi events");
-    ESP_RETURN_ON_ERROR(start_ble_provisioning(), TAG, "Failed to start Wi-Fi or BLE provisioning");
+    ESP_RETURN_ON_ERROR(start_wifi_or_provisioning(), TAG, "Failed to start Wi-Fi or provisioning");
 
     s_started = true;
     return ESP_OK;

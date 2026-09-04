@@ -1,5 +1,6 @@
 #include "config_portal.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -10,23 +11,34 @@
 #include "esp_system.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "matter_config.h"
 #include "mqtt_config.h"
+#include "sdkconfig.h"
 #include "wifi_station.h"
 
 namespace {
 constexpr const char *TAG = "config_portal";
 constexpr size_t kRequestBodyMaxLength = 1024;
 constexpr size_t kFieldMaxLength = 512;
+constexpr size_t kPortalPageMaxLength = 2048;
 constexpr uint32_t kRestartDelayMs = 1200;
 
 httpd_handle_t s_server = nullptr;
+char s_page_buffer[kPortalPageMaxLength] = {};
+SemaphoreHandle_t s_page_mutex = nullptr;
 bool s_started = false;
+
+enum class ActiveTab {
+    kMqtt,
+    kMatter,
+};
 
 void restart_task(void *)
 {
     vTaskDelay(pdMS_TO_TICKS(kRestartDelayMs));
-    ESP_LOGI(TAG, "Restarting to apply MQTT configuration");
+    ESP_LOGI(TAG, "Restarting to apply portal configuration");
     esp_restart();
 }
 
@@ -112,122 +124,260 @@ bool copy_field(char *destination, size_t destination_size, const char *source)
     return true;
 }
 
-void html_escape_send(httpd_req_t *req, const char *value)
+bool receive_form_body(httpd_req_t *req, char *body, size_t body_size)
 {
-    for (const char *cursor = value; *cursor != '\0'; ++cursor) {
-        switch (*cursor) {
-        case '&':
-            httpd_resp_sendstr_chunk(req, "&amp;");
-            break;
-        case '<':
-            httpd_resp_sendstr_chunk(req, "&lt;");
-            break;
-        case '>':
-            httpd_resp_sendstr_chunk(req, "&gt;");
-            break;
-        case '"':
-            httpd_resp_sendstr_chunk(req, "&quot;");
-            break;
-        default:
-            httpd_resp_send_chunk(req, cursor, 1);
-            break;
-        }
-    }
-}
-
-esp_err_t send_form(httpd_req_t *req, const char *status)
-{
-    MqttConfig config = {};
-    esp_err_t err = mqtt_config_load(config);
-    const bool configured = err == ESP_OK;
-    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
-        ESP_LOGW(TAG, "Failed to load MQTT configuration for portal: %s", esp_err_to_name(err));
+    if (req->content_len <= 0 || static_cast<size_t>(req->content_len) >= body_size) {
+        httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid form body");
+        return false;
     }
 
-    httpd_resp_set_type(req, "text/html; charset=utf-8");
-    httpd_resp_sendstr_chunk(req,
-                             "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
-                             "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-                             "<title>Smart Environment Sensor</title>"
-                             "<style>"
-                             ":root{font-family:-apple-system,BlinkMacSystemFont,\"Segoe UI\",sans-serif;color:#1d252c;background:#eef3f0}"
-                             "body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}"
-                             "main{width:min(560px,100%);background:#fff;border:1px solid #d9e1dc;border-radius:8px;padding:24px;box-shadow:0 12px 32px #23362d1f}"
-                             "h1{font-size:24px;margin:0 0 4px}.sub{color:#5d6b64;margin:0 0 20px}"
-                             "label{display:block;font-weight:650;margin:14px 0 6px}"
-                             "input{box-sizing:border-box;width:100%;font:inherit;padding:11px;border:1px solid #b9c5bf;border-radius:6px}"
-                             "input:focus{outline:2px solid #2e7d5b33;border-color:#2e7d5b}"
-                             ".row{display:flex;gap:10px;align-items:center;margin-top:14px}.row input{width:auto}"
-                             ".row label{margin:0;font-weight:600}"
-                             "button{font:inherit;font-weight:700;margin-top:20px;padding:12px 14px;border:0;border-radius:6px;background:#225f45;color:white;width:100%}"
-                             ".status{background:#e7f5ee;border:1px solid #b7ddca;border-radius:6px;padding:10px 12px;margin:0 0 18px}"
-                             ".note{font-size:14px;color:#5d6b64;margin:14px 0 0}"
-                             "</style></head><body><main><h1>Smart Environment Sensor</h1>"
-                             "<p class=\"sub\">MQTT configuration</p>");
-
-    if (status != nullptr) {
-        httpd_resp_sendstr_chunk(req, "<p class=\"status\">");
-        httpd_resp_sendstr_chunk(req, status);
-        httpd_resp_sendstr_chunk(req, "</p>");
-    }
-
-    httpd_resp_sendstr_chunk(req,
-                             "<form method=\"post\" action=\"/mqtt\">"
-                             "<div class=\"row\"><input id=\"mqtt_enabled\" name=\"mqtt_enabled\" type=\"checkbox\" value=\"1\"");
-    if (config.enabled) {
-        httpd_resp_sendstr_chunk(req, " checked");
-    }
-    httpd_resp_sendstr_chunk(req,
-                             "><label for=\"mqtt_enabled\">Enable MQTT service</label></div>"
-                             "<label for=\"broker_uri\">Broker URI</label><input id=\"broker_uri\" name=\"broker_uri\" placeholder=\"mqtt://192.168.3.10:1883\" value=\"");
-    html_escape_send(req, config.broker_uri);
-    httpd_resp_sendstr_chunk(req,
-                             "\"><label for=\"username\">Username</label><input id=\"username\" name=\"username\" autocomplete=\"username\" value=\"");
-    html_escape_send(req, config.username);
-    httpd_resp_sendstr_chunk(req,
-                             "\"><label for=\"password\">Password</label><input id=\"password\" name=\"password\" type=\"password\" autocomplete=\"current-password\" placeholder=\"");
-    httpd_resp_sendstr_chunk(req, configured ? "Leave blank to keep current password" : "Optional");
-    httpd_resp_sendstr_chunk(req,
-                             "\"><div class=\"row\"><input id=\"clear_password\" name=\"clear_password\" type=\"checkbox\" value=\"1\"><label for=\"clear_password\">Clear stored password</label></div>"
-                             "<label for=\"topic\">Telemetry topic</label><input id=\"topic\" name=\"topic\" required value=\"");
-    html_escape_send(req, config.topic);
-    httpd_resp_sendstr_chunk(req,
-                             "\"><label for=\"publish_interval_ms\">Publish interval ms</label><input id=\"publish_interval_ms\" name=\"publish_interval_ms\" type=\"number\" min=\"1000\" max=\"3600000\" step=\"1000\" required value=\"");
-
-    char interval[16] = {};
-    snprintf(interval, sizeof(interval), "%lu", static_cast<unsigned long>(config.publish_interval_ms));
-    httpd_resp_sendstr_chunk(req, interval);
-    httpd_resp_sendstr_chunk(req,
-                             "\"><button type=\"submit\">Save and restart</button></form>"
-                             "<p class=\"note\">Password values are never displayed. The device restarts after saving so MQTT reconnects with the new settings.</p>"
-                             "</main></body></html>");
-
-    return httpd_resp_sendstr_chunk(req, nullptr);
-}
-
-esp_err_t root_get_handler(httpd_req_t *req)
-{
-    return send_form(req, nullptr);
-}
-
-esp_err_t mqtt_post_handler(httpd_req_t *req)
-{
-    if (req->content_len <= 0 || req->content_len > kRequestBodyMaxLength) {
-        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid form body");
-    }
-
-    char body[kRequestBodyMaxLength + 1] = {};
     size_t received_total = 0;
     while (received_total < static_cast<size_t>(req->content_len)) {
         const int received = httpd_req_recv(req,
                                            body + received_total,
                                            static_cast<size_t>(req->content_len) - received_total);
         if (received <= 0) {
-            return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive form body");
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to receive form body");
+            return false;
         }
         received_total += static_cast<size_t>(received);
     }
     body[received_total] = '\0';
+    return true;
+}
+
+esp_err_t send_portal(httpd_req_t *req, const char *status, ActiveTab active_tab)
+{
+    if (s_page_mutex == nullptr || xSemaphoreTake(s_page_mutex, 0) != pdTRUE) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_set_hdr(req, "Connection", "close");
+        return httpd_resp_sendstr(req, "Portal busy, retry.");
+    }
+
+    MqttConfig mqtt_config = {};
+    esp_err_t err = mqtt_config_load(mqtt_config);
+    const bool mqtt_configured = err == ESP_OK;
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND) {
+        ESP_LOGW(TAG, "Failed to load MQTT configuration for portal: %s", esp_err_to_name(err));
+    }
+
+    MatterConfig matter_config = {};
+    err = matter_config_load(matter_config);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to load Matter configuration for portal: %s", esp_err_to_name(err));
+        matter_config.enabled = true;
+    }
+
+    char *page = s_page_buffer;
+    std::memset(page, 0, kPortalPageMaxLength);
+    char *cursor = page;
+    size_t remaining = kPortalPageMaxLength;
+    bool ok = true;
+
+    auto append = [&](const char *text) {
+        if (!ok) {
+            return;
+        }
+        const size_t length = std::strlen(text);
+        if (length >= remaining) {
+            ok = false;
+            return;
+        }
+        std::memcpy(cursor, text, length);
+        cursor += length;
+        remaining -= length;
+        *cursor = '\0';
+    };
+
+    auto append_escaped = [&](const char *text) {
+        for (const char *value = text; ok && *value != '\0'; ++value) {
+            switch (*value) {
+            case '&':
+                append("&amp;");
+                break;
+            case '<':
+                append("&lt;");
+                break;
+            case '>':
+                append("&gt;");
+                break;
+            case '"':
+                append("&quot;");
+                break;
+            default: {
+                char character[2] = {*value, '\0'};
+                append(character);
+                break;
+            }
+            }
+        }
+    };
+
+    auto append_tab = [&](ActiveTab tab, const char *href, const char *label) {
+        append("<a");
+        if (active_tab == tab) {
+            append(" aria-current=\"page\"");
+        }
+        append(" href=\"");
+        append(href);
+        append("\">");
+        append(label);
+        append("</a>");
+    };
+
+    append("<!doctype html><html><head><meta charset=\"utf-8\">"
+           "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+           "<title>Smart Environment Sensor</title><style>"
+           "body{font-family:system-ui,sans-serif;margin:24px;max-width:640px}"
+           "nav{display:flex;gap:8px;margin:16px 0}"
+           "nav a{padding:10px 14px;border:1px solid #999;border-radius:6px;text-decoration:none;color:#111}"
+           "nav a[aria-current=page]{background:#111;color:#fff}"
+           "input:not([type=checkbox]){box-sizing:border-box;max-width:100%;width:100%}"
+           "button{padding:10px 14px}"
+           "</style></head><body><h1>Smart Environment Sensor</h1>");
+
+    if (status != nullptr) {
+        append("<p class=\"status\">");
+        append_escaped(status);
+        append("</p>");
+    }
+
+    append("<nav aria-label=\"Configuration tabs\">");
+    append_tab(ActiveTab::kMqtt, "/mqtt-tab", "MQTT");
+    append_tab(ActiveTab::kMatter, "/matter-tab", "Matter");
+    append("</nav>");
+
+    if (active_tab == ActiveTab::kMqtt) {
+        char interval[16] = {};
+        snprintf(interval, sizeof(interval), "%lu", static_cast<unsigned long>(mqtt_config.publish_interval_ms));
+
+        append("<h2>MQTT</h2><form method=\"post\" action=\"/mqtt\">"
+               "<label><input name=\"en\" type=\"checkbox\" value=\"1\"");
+        if (mqtt_config.enabled) {
+            append(" checked");
+        }
+        append("> Enable MQTT service</label>"
+               "<p><label>Broker URI<br><input name=\"b\" placeholder=\"mqtt://192.168.3.10:1883\" value=\"");
+        append_escaped(mqtt_config.broker_uri);
+        append("\"></label></p><p><label>User<br><input name=\"u\" autocomplete=\"username\" value=\"");
+        append_escaped(mqtt_config.username);
+        append("\"></label></p><p><label>Password<br><input name=\"p\" type=\"password\" autocomplete=\"current-password\" placeholder=\"");
+        append(mqtt_configured ? "Leave blank to keep current password" : "Optional");
+        append("\"></label></p><label><input name=\"cp\" type=\"checkbox\" value=\"1\"> Clear stored password</label>"
+               "<p><label>Topic<br><input name=\"t\" required value=\"");
+        append_escaped(mqtt_config.topic);
+        append("\"></label></p><p><label>Interval ms<br><input name=\"i\" type=\"number\" min=\"1000\" max=\"3600000\" step=\"1000\" required value=\"");
+        append(interval);
+        append("\"></label></p><button type=\"submit\">Save and restart</button></form>"
+               "<p><a href=\"/matter-tab\">Matter settings</a></p>");
+    } else {
+        append("<h2>Matter</h2><p><a href=\"/mqtt-tab\">MQTT settings</a></p>"
+               "<form method=\"post\" action=\"/matter\">"
+               "<label><input name=\"en\" type=\"checkbox\" value=\"1\"");
+        if (matter_config.enabled) {
+            append(" checked");
+        }
+        append("> Enable Matter service</label>"
+               "<div class=\"codes\"><p>QR payload<br><code>");
+        append_escaped(kMatterSetupQrPayload);
+        append("</code></p><p>Manual code<br><code>");
+        append_escaped(kMatterManualPairingCode);
+        append("</code></p><p>Setup PIN<br><code>");
+        append_escaped(kMatterSetupPasscode);
+        append("</code></p><p>Discriminator<br><code>");
+        append_escaped(kMatterDiscriminator);
+        append("</code></p></div><p><a target=\"_blank\" rel=\"noopener\" href=\"");
+        append_escaped(kMatterSetupQrUrl);
+        append("\">Open QR code</a></p><button type=\"submit\">Save and restart</button></form>");
+#if CONFIG_APP_ENABLE_MATTER
+        append("<p>Matter is included in this firmware build.</p>");
+#else
+        append("<p>Matter is not included in this firmware build.</p>");
+#endif
+    }
+
+    append("</body></html>");
+
+    if (!ok) {
+        xSemaphoreGive(s_page_mutex);
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Portal page too large");
+    }
+
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Connection", "close");
+    ESP_LOGI(TAG,
+             "Serving %s portal page: %u bytes, free heap=%lu, min free heap=%lu",
+             active_tab == ActiveTab::kMqtt ? "MQTT" : "Matter",
+             static_cast<unsigned>(std::strlen(page)),
+             static_cast<unsigned long>(esp_get_free_heap_size()),
+             static_cast<unsigned long>(esp_get_minimum_free_heap_size()));
+    const esp_err_t send_err = httpd_resp_send(req, page, HTTPD_RESP_USE_STRLEN);
+    if (send_err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to send portal page: %s", esp_err_to_name(send_err));
+    } else {
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+    xSemaphoreGive(s_page_mutex);
+    return send_err;
+}
+
+esp_err_t send_restart_page(httpd_req_t *req, const char *status, const char *return_path)
+{
+    if (s_page_mutex == nullptr || xSemaphoreTake(s_page_mutex, 0) != pdTRUE) {
+        httpd_resp_set_status(req, "503 Service Unavailable");
+        httpd_resp_set_type(req, "text/plain");
+        httpd_resp_set_hdr(req, "Connection", "close");
+        return httpd_resp_sendstr(req, "Portal busy, retry.");
+    }
+
+    char *page = s_page_buffer;
+    std::snprintf(page,
+                  kPortalPageMaxLength,
+                  "<!doctype html><html><head><meta charset=\"utf-8\">"
+                  "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+                  "<title>Smart Environment Sensor</title></head>"
+                  "<body><h1>Smart Environment Sensor</h1><p>%s</p>"
+                  "<p>The device will restart now.</p><p><a href=\"%s\">Back</a></p></body></html>",
+                  status,
+                  return_path);
+    httpd_resp_set_type(req, "text/html; charset=utf-8");
+    httpd_resp_set_hdr(req, "Connection", "close");
+    esp_err_t err = httpd_resp_send(req, page, HTTPD_RESP_USE_STRLEN);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to send restart page: %s", esp_err_to_name(err));
+    }
+    xSemaphoreGive(s_page_mutex);
+    return err;
+}
+
+esp_err_t favicon_get_handler(httpd_req_t *req)
+{
+    httpd_resp_set_status(req, "204 No Content");
+    return httpd_resp_send(req, nullptr, 0);
+}
+
+esp_err_t root_get_handler(httpd_req_t *req)
+{
+    return send_portal(req, nullptr, ActiveTab::kMqtt);
+}
+
+esp_err_t mqtt_tab_get_handler(httpd_req_t *req)
+{
+    return send_portal(req, nullptr, ActiveTab::kMqtt);
+}
+
+esp_err_t matter_tab_get_handler(httpd_req_t *req)
+{
+    return send_portal(req, nullptr, ActiveTab::kMatter);
+}
+
+esp_err_t mqtt_post_handler(httpd_req_t *req)
+{
+    char body[kRequestBodyMaxLength + 1] = {};
+    if (!receive_form_body(req, body, sizeof(body))) {
+        return ESP_FAIL;
+    }
 
     MqttConfig config = {};
     esp_err_t err = mqtt_config_load(config);
@@ -237,33 +387,33 @@ esp_err_t mqtt_post_handler(httpd_req_t *req)
     }
 
     char field[kFieldMaxLength] = {};
-    config.enabled = form_field(body, "mqtt_enabled", field, sizeof(field)) && std::strcmp(field, "1") == 0;
+    config.enabled = form_field(body, "en", field, sizeof(field)) && std::strcmp(field, "1") == 0;
 
-    form_field(body, "broker_uri", field, sizeof(field));
+    form_field(body, "b", field, sizeof(field));
     if (!copy_field(config.broker_uri, sizeof(config.broker_uri), field) ||
         (config.enabled && std::strlen(config.broker_uri) == 0)) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid broker URI");
     }
 
-    if (form_field(body, "username", field, sizeof(field)) &&
+    if (form_field(body, "u", field, sizeof(field)) &&
         !copy_field(config.username, sizeof(config.username), field)) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid username");
     }
 
-    const bool clear_password = form_field(body, "clear_password", field, sizeof(field)) && std::strcmp(field, "1") == 0;
+    const bool clear_password = form_field(body, "cp", field, sizeof(field)) && std::strcmp(field, "1") == 0;
     if (clear_password) {
         config.password[0] = '\0';
-    } else if (form_field(body, "password", field, sizeof(field)) && std::strlen(field) > 0 &&
+    } else if (form_field(body, "p", field, sizeof(field)) && std::strlen(field) > 0 &&
                !copy_field(config.password, sizeof(config.password), field)) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid password");
     }
 
-    if (form_field(body, "topic", field, sizeof(field)) &&
+    if (form_field(body, "t", field, sizeof(field)) &&
         !copy_field(config.topic, sizeof(config.topic), field)) {
         return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid telemetry topic");
     }
 
-    if (form_field(body, "publish_interval_ms", field, sizeof(field))) {
+    if (form_field(body, "i", field, sizeof(field))) {
         char *end = nullptr;
         const unsigned long interval = std::strtoul(field, &end, 10);
         if (end == field || *end != '\0' || interval < 1000 || interval > 3600000) {
@@ -279,8 +429,38 @@ esp_err_t mqtt_post_handler(httpd_req_t *req)
     }
 
     ESP_LOGI(TAG, "MQTT configuration saved from web portal");
+    esp_err_t response_err = send_restart_page(req, "MQTT configuration saved.", "/mqtt-tab");
     xTaskCreate(restart_task, "config_restart", 2048, nullptr, 5, nullptr);
-    return send_form(req, "MQTT configuration saved. The device will restart now.");
+    return response_err;
+}
+
+esp_err_t matter_post_handler(httpd_req_t *req)
+{
+    char body[kRequestBodyMaxLength + 1] = {};
+    if (!receive_form_body(req, body, sizeof(body))) {
+        return ESP_FAIL;
+    }
+
+    char field[kFieldMaxLength] = {};
+    MatterConfig config = {};
+    esp_err_t err = matter_config_load(config);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to load existing Matter configuration: %s", esp_err_to_name(err));
+        return httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "Failed to load Matter configuration");
+    }
+
+    config.enabled = form_field(body, "en", field, sizeof(field)) && std::strcmp(field, "1") == 0;
+
+    err = matter_config_save(config);
+    if (err != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to save Matter configuration from portal: %s", esp_err_to_name(err));
+        return httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Failed to save Matter configuration");
+    }
+
+    ESP_LOGI(TAG, "Matter configuration saved from web portal");
+    esp_err_t response_err = send_restart_page(req, "Matter configuration saved.", "/matter-tab");
+    xTaskCreate(restart_task, "config_restart", 2048, nullptr, 5, nullptr);
+    return response_err;
 }
 
 esp_err_t start_http_server()
@@ -289,8 +469,19 @@ esp_err_t start_http_server()
         return ESP_OK;
     }
 
+    if (s_page_mutex == nullptr) {
+        s_page_mutex = xSemaphoreCreateMutex();
+        if (s_page_mutex == nullptr) {
+            return ESP_ERR_NO_MEM;
+        }
+    }
+
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+    config.stack_size = 4096;
+    config.max_open_sockets = 3;
     config.lru_purge_enable = true;
+    config.recv_wait_timeout = 5;
+    config.send_wait_timeout = 15;
 
     esp_err_t err = httpd_start(&s_server, &config);
     if (err != ESP_OK) {
@@ -305,11 +496,35 @@ esp_err_t start_http_server()
     root_uri.handler = root_get_handler;
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &root_uri), TAG, "Failed to register root handler");
 
+    httpd_uri_t mqtt_tab_uri = {};
+    mqtt_tab_uri.uri = "/mqtt-tab";
+    mqtt_tab_uri.method = HTTP_GET;
+    mqtt_tab_uri.handler = mqtt_tab_get_handler;
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &mqtt_tab_uri), TAG, "Failed to register MQTT tab handler");
+
+    httpd_uri_t matter_tab_uri = {};
+    matter_tab_uri.uri = "/matter-tab";
+    matter_tab_uri.method = HTTP_GET;
+    matter_tab_uri.handler = matter_tab_get_handler;
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &matter_tab_uri), TAG, "Failed to register Matter tab handler");
+
+    httpd_uri_t favicon_uri = {};
+    favicon_uri.uri = "/favicon.ico";
+    favicon_uri.method = HTTP_GET;
+    favicon_uri.handler = favicon_get_handler;
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &favicon_uri), TAG, "Failed to register favicon handler");
+
     httpd_uri_t mqtt_uri = {};
     mqtt_uri.uri = "/mqtt";
     mqtt_uri.method = HTTP_POST;
     mqtt_uri.handler = mqtt_post_handler;
     ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &mqtt_uri), TAG, "Failed to register MQTT handler");
+
+    httpd_uri_t matter_uri = {};
+    matter_uri.uri = "/matter";
+    matter_uri.method = HTTP_POST;
+    matter_uri.handler = matter_post_handler;
+    ESP_RETURN_ON_ERROR(httpd_register_uri_handler(s_server, &matter_uri), TAG, "Failed to register Matter handler");
 
     ESP_LOGI(TAG, "Configuration portal started on http://<device-ip>/");
     return ESP_OK;

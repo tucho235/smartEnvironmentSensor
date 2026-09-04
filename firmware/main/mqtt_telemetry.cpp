@@ -10,6 +10,7 @@
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "memory_diagnostics.h"
 #include "mqtt_config.h"
 #include "mqtt_client.h"
 #include "sdkconfig.h"
@@ -18,7 +19,7 @@
 
 namespace {
 constexpr const char *TAG = "mqtt_telemetry";
-constexpr uint32_t kMqttTelemetryTaskStackWords = 4096;
+constexpr uint32_t kMqttTelemetryTaskStackWords = 3072;
 constexpr int kMqttTelemetryTaskPriority = 4;
 constexpr int kMqttNetworkTimeoutMs = 5000;
 constexpr int kMqttKeepaliveSeconds = 60;
@@ -28,6 +29,7 @@ esp_mqtt_client_handle_t s_client = nullptr;
 TaskHandle_t s_publish_task_handle = nullptr;
 MqttConfig s_config = {};
 std::atomic<bool> s_started{false};
+std::atomic<bool> s_network_events_registered{false};
 std::atomic<bool> s_connected{false};
 std::atomic<bool> s_client_started{false};
 std::atomic<bool> s_configuration_logged_missing{false};
@@ -119,12 +121,18 @@ void network_event_handler(void *, esp_event_base_t event_base, int32_t event_id
 
 esp_err_t register_network_events()
 {
+    bool expected = false;
+    if (!s_network_events_registered.compare_exchange_strong(expected, true)) {
+        return ESP_OK;
+    }
+
     esp_err_t err = esp_event_handler_instance_register(IP_EVENT,
                                                         IP_EVENT_STA_GOT_IP,
                                                         network_event_handler,
                                                         nullptr,
                                                         nullptr);
     if (err != ESP_OK) {
+        s_network_events_registered = false;
         ESP_LOGE(TAG, "Failed to register MQTT IP event handler: %s", esp_err_to_name(err));
         return err;
     }
@@ -135,6 +143,7 @@ esp_err_t register_network_events()
                                               nullptr,
                                               nullptr);
     if (err != ESP_OK) {
+        s_network_events_registered = false;
         ESP_LOGE(TAG, "Failed to register MQTT Wi-Fi event handler: %s", esp_err_to_name(err));
         return err;
     }
@@ -236,13 +245,13 @@ esp_err_t format_payload(const SensorSnapshot &snapshot, char *payload, size_t p
     return ESP_OK;
 }
 
-void publish_latest_snapshot()
+bool publish_latest_snapshot()
 {
     SensorSnapshot snapshot = {};
     esp_err_t err = sensor_service_get_latest(snapshot);
     if (err != ESP_OK) {
         ESP_LOGD(TAG, "No valid sensor snapshot available for MQTT publish: %s", esp_err_to_name(err));
-        return;
+        return false;
     }
 
     char payload[kPayloadBufferSize] = {};
@@ -250,42 +259,63 @@ void publish_latest_snapshot()
     err = format_payload(snapshot, payload, sizeof(payload), payload_length);
     if (err != ESP_OK) {
         ESP_LOGW(TAG, "Failed to format MQTT payload: %s", esp_err_to_name(err));
-        return;
+        return false;
     }
 
-    int msg_id = esp_mqtt_client_enqueue(s_client,
+    int msg_id = esp_mqtt_client_publish(s_client,
                                          s_config.topic,
                                          payload,
                                          payload_length,
                                          0,
-                                         0,
-                                         true);
+                                         0);
     if (msg_id < 0) {
-        ESP_LOGW(TAG, "Failed to enqueue MQTT telemetry, result=%d", msg_id);
-        return;
+        ESP_LOGW(TAG, "Failed to submit MQTT telemetry, result=%d", msg_id);
+        return false;
     }
 
-    ESP_LOGI(TAG, "MQTT telemetry queued, sequence=%lu, msg_id=%d",
+    ESP_LOGI(TAG, "MQTT telemetry submitted, sequence=%lu, msg_id=%d",
              static_cast<unsigned long>(snapshot.sequence),
              msg_id);
+    return true;
 }
 
 void mqtt_publish_task(void *)
 {
+    uint32_t published_since_diagnostics = 0;
+    memory_diagnostics_log(TAG, "MQTT task started");
+
     while (true) {
         if (s_client == nullptr) {
             esp_err_t err = initialize_mqtt_client_from_config();
+            if (err == ESP_ERR_INVALID_STATE) {
+                ESP_LOGI(TAG, "MQTT telemetry task stopping because MQTT is disabled");
+                break;
+            }
+            if (err == ESP_ERR_NOT_FOUND && !wifi_station_is_provisioning_active()) {
+                ESP_LOGD(TAG, "MQTT telemetry waiting for configuration");
+            }
             if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_INVALID_STATE) {
                 ESP_LOGW(TAG, "MQTT telemetry remains disabled: %s", esp_err_to_name(err));
             }
         }
 
         if (s_connected && s_client != nullptr) {
-            publish_latest_snapshot();
+            if (publish_latest_snapshot()) {
+                published_since_diagnostics++;
+                if (published_since_diagnostics >= 12) {
+                    published_since_diagnostics = 0;
+                    memory_diagnostics_log(TAG, "MQTT task periodic");
+                }
+            }
         }
 
         vTaskDelay(pdMS_TO_TICKS(publish_interval_ms()));
     }
+
+    s_started = false;
+    s_publish_task_handle = nullptr;
+    memory_diagnostics_log(TAG, "MQTT task stopped");
+    vTaskDelete(nullptr);
 }
 
 esp_err_t create_publish_task()
@@ -316,6 +346,15 @@ esp_err_t mqtt_telemetry_start()
         return err;
     }
 
+    err = initialize_mqtt_client_from_config();
+    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_INVALID_STATE) {
+        ESP_LOGE(TAG, "Failed to initialize MQTT telemetry: %s", esp_err_to_name(err));
+        return err;
+    }
+    if (err == ESP_ERR_INVALID_STATE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+
     err = create_publish_task();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to create MQTT telemetry task: %s", esp_err_to_name(err));
@@ -324,12 +363,5 @@ esp_err_t mqtt_telemetry_start()
 
     s_started = true;
     ESP_LOGI(TAG, "MQTT telemetry service started");
-
-    err = initialize_mqtt_client_from_config();
-    if (err != ESP_OK && err != ESP_ERR_NOT_FOUND && err != ESP_ERR_INVALID_STATE) {
-        ESP_LOGE(TAG, "Failed to initialize MQTT telemetry: %s", esp_err_to_name(err));
-        return err;
-    }
-
     return ESP_OK;
 }

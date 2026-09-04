@@ -1,5 +1,79 @@
 menu "Smart Environment Sensor Configuration"
 
+    config APP_ENABLE_MATTER
+        bool "Enable Matter endpoint integration"
+        default n
+        help
+            Enables the ESP-Matter dependency and starts the Matter node with
+            Temperature, Humidity and Pressure Sensor endpoints. Keep disabled
+            while developing or testing MQTT-only firmware.
+
+    config APP_MATTER_UPDATE_INTERVAL_MS
+        int "Matter sensor update interval in milliseconds"
+        default 5000
+        range 1000 3600000
+        depends on APP_ENABLE_MATTER
+        help
+            Interval used by the Matter update task to mirror the latest
+            sensor_service snapshot into Matter measurement attributes. This is
+            independent from the BME680 sampling interval and MQTT publish
+            interval.
+
+    config APP_MATTER_ENABLE_POWER_SOURCE
+        bool "Expose Matter PowerSource endpoint"
+        default y
+        depends on APP_ENABLE_MATTER
+        help
+            Exposes a static USB PowerSource endpoint. Disable this for strict
+            environmental-sensor validation builds.
+
+    config APP_MATTER_THERMOSTAT_ONLY
+        bool "Expose only a Matter Thermostat endpoint"
+        default n
+        depends on APP_ENABLE_MATTER
+        help
+            Creates only endpoint 1 as a standard Matter Thermostat with the
+            Thermostat cluster LocalTemperature attribute. This mirrors the
+            Espressif low-code thermostat product shape for SmartThings
+            controller validation.
+
+    config APP_MATTER_TEMPERATURE_ONLY
+        bool "Expose only a Matter Temperature Sensor endpoint"
+        default n
+        depends on APP_ENABLE_MATTER
+        depends on !APP_MATTER_THERMOSTAT_ONLY
+        help
+            Creates only endpoint 1 as a standard Matter Temperature Sensor
+            with the TemperatureMeasurement cluster.
+
+    config APP_MATTER_SEPARATE_SENSOR_ENDPOINTS
+        bool "Expose Matter sensors on separate endpoints"
+        default n
+        depends on APP_ENABLE_MATTER
+        depends on !APP_MATTER_THERMOSTAT_ONLY
+        depends on !APP_MATTER_TEMPERATURE_ONLY
+        help
+            Exposes temperature, humidity and pressure as separate standard
+            Matter sensor endpoints. This follows Espressif's single-sensor
+            product shape and is useful for controller portability validation.
+
+    config APP_ENABLE_MQTT_TELEMETRY
+        bool "Enable MQTT telemetry"
+        default y
+        help
+            Enables the ESP-MQTT telemetry client and MQTT configuration
+            provisioning endpoints. Disable this for Matter-only validation
+            builds.
+
+    config APP_ENABLE_CONFIG_PORTAL
+        bool "Enable local HTTP configuration portal"
+        default y
+        depends on APP_ENABLE_MQTT_TELEMETRY
+        help
+            Enables the local HTTP configuration portal. The current portal
+            exposes MQTT configuration and Matter runtime settings, so it is
+            compiled with the MQTT configuration layer.
+
     config APP_WIFI_PROV_SERVICE_PREFIX
         string "BLE provisioning service name prefix"
         default "SMENV_"
@@ -26,6 +100,7 @@ menu "Smart Environment Sensor Configuration"
     config APP_MQTT_BROKER_URI
         string "MQTT broker URI bootstrap"
         default ""
+        depends on APP_ENABLE_MQTT_TELEMETRY
         help
             Optional bootstrap MQTT broker URI, for example
             mqtt://192.168.3.10:1883. If MQTT configuration is not present in
@@ -35,6 +110,7 @@ menu "Smart Environment Sensor Configuration"
     config APP_MQTT_USERNAME
         string "MQTT username bootstrap"
         default ""
+        depends on APP_ENABLE_MQTT_TELEMETRY
         help
             Optional bootstrap MQTT username. This value is written to the local
             sdkconfig file, which is ignored by Git. Do not add credentials to
@@ -43,6 +119,7 @@ menu "Smart Environment Sensor Configuration"
     config APP_MQTT_PASSWORD
         string "MQTT password bootstrap"
         default ""
+        depends on APP_ENABLE_MQTT_TELEMETRY
         help
             Optional bootstrap MQTT password. This value is written to the local
             sdkconfig file, which is ignored by Git. Do not add credentials to
@@ -51,6 +128,7 @@ menu "Smart Environment Sensor Configuration"
     config APP_MQTT_TELEMETRY_TOPIC
         string "Default MQTT telemetry topic"
         default "smart-environment-sensor/bme680/state"
+        depends on APP_ENABLE_MQTT_TELEMETRY
         help
             Default topic used for periodic BME680 telemetry snapshots. This is
             also used when MQTT configuration is received without an explicit
@@ -60,6 +138,7 @@ menu "Smart Environment Sensor Configuration"
         int "MQTT telemetry publish interval in milliseconds"
         default 10000
         range 1000 3600000
+        depends on APP_ENABLE_MQTT_TELEMETRY
         help
             Interval used by the MQTT telemetry task. This is independent from
             the BME680 sampling interval.
@@ -68,6 +147,7 @@ menu "Smart Environment Sensor Configuration"
         int "MQTT broker reconnect interval in milliseconds"
         default 10000
         range 1000 3600000
+        depends on APP_ENABLE_MQTT_TELEMETRY
         help
             Broker reconnect interval used by the ESP-MQTT client.
 

@@ -14,8 +14,19 @@ cd firmware
 idf.py -p /dev/cu.usbmodem112301 flash monitor
 ```
 
-On first boot, or after Wi-Fi credentials are erased, the firmware starts BLE
-provisioning.
+On first boot, or after Wi-Fi credentials are erased, the MQTT-only firmware
+starts BLE provisioning.
+
+When the Matter runtime service is enabled, initial Wi-Fi setup is handled by
+Matter Network Commissioning instead. Use the Matter controller app, for example
+SmartThings, to send the Wi-Fi network during Matter commissioning. The project
+BLE provisioning flow is kept as a fallback for builds or runtime configurations
+where Matter is disabled.
+
+In the Matter runtime path, the local Wi-Fi layer starts station mode but does
+not initiate connection or reconnection attempts. It keeps the ESP-IDF network
+stack and event observers available while ESP-Matter controls access point
+association.
 
 Expected log:
 
@@ -51,8 +62,8 @@ After Wi-Fi connects, the firmware starts the local configuration portal:
 Configuration portal started on http://<device-ip>/
 ```
 
-Open the printed IP in a browser to configure MQTT without recompiling the
-firmware.
+Open the printed IP in a browser to configure MQTT and Matter runtime settings
+without recompiling the firmware.
 
 The credentials are stored by ESP-IDF Wi-Fi in NVS. Future boots reuse the saved
 credentials automatically.

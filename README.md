@@ -161,19 +161,22 @@ I²C ni al driver BME680 directamente.
 
 # Matter
 
-El dispositivo se modelará inicialmente como un único Matter Node con varios endpoints.
+El dispositivo se modela como un único Matter Node. La build Matter estándar de
+validación expone solo temperatura copiando el shape del producto
+`temperature_sensor` de Espressif en `esp-lowcode-matter`: un endpoint
+`Temperature Sensor` version 1 con el cluster `TemperatureMeasurement`.
+Desde ese caso base se agregan humedad y presión de forma incremental.
+
+El endpoint `PowerSource` es opcional y se mantiene apagado en la build Matter
+estándar, porque el prototipo actual está alimentado por USB.
 
 ```text
 Matter Node
 │
 ├── Endpoint 1
 │   └── Temperature Sensor
-│
-├── Endpoint 2
-│   └── Humidity Sensor
-│
-└── Endpoint 3
-    └── Pressure Sensor
+└── Endpoint 2, opcional
+    └── Power Source
 ```
 
 Los valores del BME680 serán convertidos a las unidades y escalas requeridas por los clusters Matter correspondientes.
@@ -373,6 +376,8 @@ smartEnvironmentSensor/
 │   │   ├── app_main.cpp
 │   │   ├── bme680_sensor.cpp
 │   │   ├── config_portal.cpp
+│   │   ├── matter_config.cpp
+│   │   ├── matter_device.cpp
 │   │   ├── mqtt_config.cpp
 │   │   ├── mqtt_telemetry.cpp
 │   │   ├── sensor_service.cpp
@@ -381,6 +386,8 @@ smartEnvironmentSensor/
 │   │   │   ├── app_config.h
 │   │   │   ├── bme680_sensor.h
 │   │   │   ├── config_portal.h
+│   │   │   ├── matter_config.h
+│   │   │   ├── matter_device.h
 │   │   │   ├── mqtt_config.h
 │   │   │   ├── mqtt_telemetry.h
 │   │   │   ├── sensor_sample.h
@@ -392,13 +399,15 @@ smartEnvironmentSensor/
 │   ├── CMakeLists.txt
 │   ├── dependencies.lock
 │   ├── partitions.csv
-│   └── sdkconfig.defaults
+│   ├── sdkconfig.defaults
+│   └── sdkconfig.matter.defaults
 │
 ├── hardware/
 │   └── README.md
 │
 ├── docs/
 │   ├── hardware.md
+│   ├── matter.md
 │   ├── mqtt.md
 │   └── wifi.md
 │
@@ -408,10 +417,10 @@ smartEnvironmentSensor/
 └── LICENSE
 ```
 
-El sensor BME680, la capa de servicio, Wi-Fi provisioning, MQTT y el portal web
-de configuración ya están implementados de forma incremental. Matter se agregará
-sobre la misma capa de servicio para mantener las interfaces de red desacopladas
-del acceso I²C.
+El sensor BME680, la capa de servicio, Wi-Fi provisioning, MQTT, el portal web
+de configuración y el scaffold Matter ya están implementados de forma
+incremental. Matter se habilita por configuración local y consume la misma capa
+de servicio para mantener las interfaces de red desacopladas del acceso I²C.
 
 ---
 
@@ -488,11 +497,18 @@ provisionar Wi-Fi, abrir en un navegador la IP que aparece en el monitor serie:
 http://<device-ip>/
 ```
 
-El portal permite activar/desactivar el servicio MQTT, y guarda `broker URI`,
+El portal separa la configuración en tabs para MQTT y Matter.
+
+La tab MQTT permite activar/desactivar el servicio MQTT, y guarda `broker URI`,
 usuario, password, topic e intervalo en NVS. Si MQTT queda desactivado, el
-firmware no intenta conectar al broker ni publicar telemetría. Al guardar, el
-ESP32-C3 reinicia para aplicar la nueva configuración. No se deben agregar
-credenciales MQTT a `sdkconfig.defaults`.
+firmware no intenta conectar al broker ni publicar telemetría.
+
+La tab Matter muestra el QR/setup payload, el manual pairing code y permite
+activar/desactivar el arranque del servicio Matter en NVS. Si Matter queda
+desactivado, el firmware no inicia el nodo Matter en el siguiente boot.
+
+Al guardar cambios desde el portal, el ESP32-C3 reinicia para aplicar la nueva
+configuración. No se deben agregar credenciales MQTT a `sdkconfig.defaults`.
 
 Durante el provisioning BLE inicial también existe soporte para enviar
 configuración MQTT como JSON al endpoint `mqtt-config` o `custom-data`, pero la
@@ -554,10 +570,15 @@ idf.py flash monitor
 
 ## Phase 3 — Matter
 
-* [ ] Crear proyecto ESP-Matter.
-* [ ] Implementar Temperature Sensor.
-* [ ] Implementar Humidity Sensor.
-* [ ] Implementar Pressure Sensor.
+* [x] Crear scaffold ESP-Matter opcional.
+* [x] Documentar estrategia de red custom.
+* [x] Preparar Temperature Sensor.
+* [x] Preparar Humidity Sensor.
+* [x] Preparar Pressure Sensor.
+* [x] Resolver y validar build con componente `espressif/esp_matter`.
+* [x] Agregar defaults locales para build Matter.
+* [x] Agregar control runtime de Matter en el portal web local.
+* [x] Habilitar Matter en `sdkconfig` local.
 * [ ] Realizar commissioning.
 * [ ] Verificar funcionamiento con Matter Controller.
 * [ ] Implementar reporting adecuado.
@@ -634,9 +655,10 @@ Actualmente están definidos:
 * ESP-IDF como framework.
 * ESP-Matter como implementación Matter.
 * MQTT como canal de telemetría.
-* MQTT como canal de telemetría.
 
 La base ESP-IDF, lectura BME680, Wi-Fi provisioning BLE, portal local de
-configuración y MQTT ya existen. InfluxDB, Telegraf y Grafana son responsabilidad
-de [`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure).
-Matter sigue pendiente y se implementará por etapas.
+configuración, MQTT y el scaffold Matter ya existen. InfluxDB, Telegraf y Grafana
+son responsabilidad de
+[`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure).
+La validación completa de ESP-Matter y reporting con SmartThings sigue en ajuste
+por etapas.

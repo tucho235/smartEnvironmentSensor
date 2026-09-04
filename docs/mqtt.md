@@ -22,8 +22,10 @@ After Wi-Fi provisioning succeeds, open the device IP printed in the serial
 monitor:
 
 ```text
-http://<device-ip>/
+http://<device-ip>/mqtt-tab
 ```
+
+The root URL (`http://<device-ip>/`) also opens the MQTT tab for compatibility.
 
 The portal lets the user configure:
 
