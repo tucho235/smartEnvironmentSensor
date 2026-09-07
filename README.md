@@ -571,8 +571,8 @@ idf.py flash monitor
 * [x] Resolver y validar build con componente `espressif/esp_matter`.
 * [x] Agregar defaults locales para build Matter.
 * [x] Agregar control runtime de Matter en el portal web local.
-* [ ] Realizar commissioning.
-* [ ] Verificar funcionamiento con Matter Controller.
+* [x] Realizar commissioning.
+* [x] Verificar funcionamiento con Matter Controller.
 * [ ] Implementar reporting adecuado.
 
 ## Fase 4 — MQTT
@@ -603,7 +603,7 @@ en el repositorio
 * [x] Diagnósticos periódicos de memoria y stack.
 * [x] NVS para credenciales Wi-Fi.
 * [x] Manejo básico de errores de sensor, Wi-Fi, MQTT y Matter.
-* [ ] Pruebas prolongadas.
+* [x] Pruebas prolongadas de varios días.
 
 ## Fase 7 — Avanzado
 
@@ -636,9 +636,11 @@ El proyecto seguirá estos principios:
 
 # Estado
 
-🚧 **Early Development — integración Matter en validación**
+✅ **v1.0.0 — versión estable**
 
-El proyecto se encuentra en etapa de diseño e implementación inicial.
+La versión `v1.0.0` se encuentra validada en hardware y lleva varios días
+funcionando de forma satisfactoria. Se validaron el modelo Matter, el
+commissioning con un controlador y la operación prolongada del firmware.
 
 Actualmente están definidos:
 
@@ -649,9 +651,8 @@ Actualmente están definidos:
 * MQTT como canal de telemetría.
 
 La base ESP-IDF, lectura BME680, Wi-Fi provisioning BLE, portal local de
-configuración, MQTT y la integración Matter ya existen. El commissioning y la
-validación con un Matter Controller aún están pendientes. InfluxDB, Telegraf y
-Grafana son responsabilidad de
+configuración, MQTT y la integración Matter están implementados. InfluxDB,
+Telegraf y Grafana son responsabilidad de
 [`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure).
-La validación completa de ESP-Matter y reporting con SmartThings sigue en ajuste
-por etapas.
+Las mejoras futuras de reporting Matter, OTA, resistencia del gas, calidad del
+aire y diagnósticos avanzados quedan fuera del alcance de esta versión estable.

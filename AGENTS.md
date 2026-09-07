@@ -204,11 +204,12 @@ están fuera de alcance hasta recibir solicitud explícita.
 
 ## Estado actual
 
-El proyecto está en desarrollo inicial. Ya existen la base ESP-IDF, el driver y
-servicio BME680, provisioning Wi-Fi BLE, portal web local, MQTT, persistencia
-NVS, diagnósticos de memoria y la integración Matter opcional. El commissioning,
-la validación completa con controladores Matter, el reporting formal, OTA, gas y
-calidad del aire siguen pendientes.
+La versión `v1.0.0` está validada en hardware y lleva varios días funcionando de
+forma satisfactoria. Ya existen la base ESP-IDF, el driver y servicio BME680,
+provisioning Wi-Fi BLE, portal web local, MQTT, persistencia NVS, diagnósticos de
+memoria e integración Matter opcional. El modelo Matter y el commissioning con
+un controlador fueron validados. El reporting avanzado, OTA, gas y calidad del
+aire siguen fuera del alcance de esta versión.
 
 ## Definición de terminado
 

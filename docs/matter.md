@@ -183,20 +183,24 @@ PressureMeasurement.MeasuredValue            0.1 kPa, equivalent to hPa
 La capa Matter realiza estas conversiones localmente antes de actualizar los
 atributos.
 
-## Próximos pasos de validación
+## Estado de validación
+
+La versión `v1.0.0` validó el modelo Matter, el commissioning con un controlador
+Matter y el funcionamiento prolongado del firmware durante varios días.
+
+Para reproducir la validación:
 
 1. Habilitar `APP_ENABLE_MATTER` en el `sdkconfig` local.
 2. Confirmar que ESP-Matter se resuelve mediante IDF Component Manager.
 3. Mantener habilitado Matter Network Commissioning estándar.
 4. Compilar para `esp32c3`.
 5. Flashear y confirmar el funcionamiento del BME680 y Wi-Fi.
-6. Hacer el commissioning del dispositivo con un controlador Matter.
-7. Verificar el descubrimiento de endpoints y el reporting de temperatura,
+6. Verificar el descubrimiento de endpoints y el reporting de temperatura,
    humedad y presión.
 
 La prueba con un controlador Matter debe confirmar el modelo de endpoints
 seleccionado y sus atributos de medición correspondientes. Los valores Matter
 se actualizan desde el último snapshot del sensor cada
 `APP_MATTER_UPDATE_INTERVAL_MS` milisegundos, independientemente del intervalo
-de muestreo de 3 segundos del BME680. El reporting formal y la compatibilidad
-con controladores todavía no se consideran completos.
+de muestreo de 3 segundos del BME680. El reporting avanzado queda como mejora
+posterior, no como requisito para la versión `v1.0.0`.
