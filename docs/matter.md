@@ -1,56 +1,67 @@
 # Matter
 
-Matter support is being integrated as an optional firmware feature.
+Matter es una funcionalidad opcional del firmware y está desactivada por
+defecto en la configuración normal.
 
-The Matter runtime is validated from the smallest controller-compatible shape
-first. The Matter-only validation build exposes one Temperature Sensor endpoint,
-matching Espressif's `esp-lowcode-matter` `temperature_sensor` product shape:
-device type `0x0302` version `1` with the `TemperatureMeasurement` cluster.
-Humidity and pressure are added only after that baseline updates correctly in a
-controller.
+El código admite varios modelos de endpoints. Los valores predeterminados de
+validación estándar usan el modelo ambiental completo en un endpoint:
+temperatura, humedad relativa y presión. También hay un modo de solo temperatura
+para probar la compatibilidad con controladores.
 
 ```text
 Matter Node
-├── Endpoint 1: Temperature Sensor
-│   └── TemperatureMeasurement cluster
-└── Endpoint 2: Power Source, optional
-    └── PowerSource cluster
+└── Environmental endpoint (default)
+    ├── TemperatureMeasurement
+    ├── RelativeHumidityMeasurement
+    └── PressureMeasurement
 ```
 
-The implementation is isolated in `matter_device.cpp/.h` and consumes sensor
-data only through `sensor_service_get_latest()`. It must not access the BME680
-driver or the I2C bus directly, and it must remain independent from MQTT.
+La implementación está aislada en `matter_device.cpp/.h` y consume los datos del
+sensor únicamente mediante `sensor_service_get_latest()`. No debe acceder
+directamente al driver BME680 ni al bus I²C, y debe mantenerse independiente de
+MQTT.
 
-## Build Flag
+## Opción de compilación
 
-Matter is disabled by default:
+Matter está desactivado por defecto:
 
 ```text
 Smart Environment Sensor Configuration
 └── Enable Matter endpoint integration
 ```
 
-When enabled, the project pulls the managed `espressif/esp_matter` component and
-starts a Matter node with Temperature, Humidity and Pressure Sensor endpoints.
+Cuando se habilita, el proyecto obtiene el componente administrado
+`espressif/esp_matter` e inicia un nodo Matter. El modelo de endpoints se
+selecciona mediante opciones mutuamente excluyentes:
 
-`APP_MATTER_TEMPERATURE_ONLY` creates only endpoint 1 as a standard Temperature
-Sensor with `TemperatureMeasurement.MeasuredValue`. The USB-powered Matter
-validation build enables this mode and leaves the optional static `PowerSource`
-endpoint disabled.
+```text
+APP_MATTER_THERMOSTAT_ONLY              un endpoint Thermostat
+APP_MATTER_TEMPERATURE_ONLY             un endpoint Temperature Sensor
+APP_MATTER_SEPARATE_SENSOR_ENDPOINTS    un endpoint por medición
+todo desactivado                         un endpoint con los tres clusters
+```
 
-This keeps the current MQTT-only firmware build stable while the Matter
-dependency and commissioning flow are validated.
+`APP_MATTER_TEMPERATURE_ONLY` crea el endpoint 1 como un `Temperature Sensor`
+estándar con `TemperatureMeasurement.MeasuredValue`.
+`APP_MATTER_ENABLE_POWER_SOURCE` agrega un endpoint `PowerSource` USB estático y
+opcional; los valores predeterminados de validación estándar lo desactivan.
 
-An ESP32-C3 build with `APP_ENABLE_MATTER=y` and managed component
-`espressif/esp_matter` `1.6.0` has been validated with ESP-IDF `6.1.0`.
+Esto mantiene estable la build actual solo con MQTT mientras se validan la
+dependencia Matter y el flujo de commissioning.
 
-The versioned defaults file for this variant is:
+Se validó una build para ESP32-C3 con `APP_ENABLE_MATTER=y`, el componente
+administrado `espressif/esp_matter` `1.6.0` y ESP-IDF `6.1.0`.
+
+El archivo versionado de valores predeterminados para esta variante es:
 
 ```text
 firmware/sdkconfig.matter-standard.defaults
 ```
 
-Build the Matter variant without modifying the normal local `sdkconfig`:
+Esta variante habilita Matter, MQTT y el portal local de configuración,
+selecciona el modelo ambiental completo y desactiva `PowerSource`.
+
+Compilar la variante Matter sin modificar el `sdkconfig` local normal:
 
 ```bash
 idf.py -B build-matter-standard \
@@ -59,66 +70,69 @@ idf.py -B build-matter-standard \
   build
 ```
 
-Flash the same build directory once it compiles:
+Una vez compilada, flashear usando el mismo directorio de build:
 
 ```bash
 idf.py -B build-matter-standard -DSDKCONFIG=sdkconfig.matter-standard -p PORT flash monitor
 ```
 
-## Cluster Selection
+## Selección de clusters
 
-The Matter standard variant keeps the broad default ESP-Matter cluster catalog
-while the endpoint model is validated. The firmware only creates runtime
-endpoints for:
+La variante Matter estándar conserva el catálogo amplio de clusters
+predeterminado de ESP-Matter mientras se valida el modelo de endpoints. El
+firmware solo crea en tiempo de ejecución los endpoints siguientes:
 
 ```text
-Endpoint 1:
-  Temperature Sensor device type + TemperatureMeasurement
-Endpoint 2, optional:
-  Power Source device type + PowerSource
+Endpoint predeterminado:
+  device type de Temperature Sensor + TemperatureMeasurement
+  device type de Humidity Sensor + RelativeHumidityMeasurement
+  device type de Pressure Sensor + PressureMeasurement
+Endpoint opcional:
+  device type de Power Source + PowerSource
 ```
 
-It also keeps the required root-node commissioning and operational clusters.
-Once this shape is confirmed across controllers, humidity and pressure can be
-added back incrementally.
+También conserva los clusters de commissioning y operacionales requeridos por el
+nodo raíz. Los modelos de solo temperatura y de endpoints separados están
+disponibles cuando un controlador concreto requiere una forma más reducida.
 
-OpenThread support is disabled for the Wi-Fi-only ESP32-C3 build:
+El soporte de OpenThread está desactivado en la build de ESP32-C3 solo con Wi-Fi:
 
 ```text
 CONFIG_ESP_MATTER_ENABLE_OPENTHREAD is not set
 ```
 
-## Network Commissioning
+## Commissioning de red
 
-When Matter is enabled, Wi-Fi commissioning is handled by the standard Matter
-Network Commissioning cluster. This keeps the device compatible with Matter
-controllers such as SmartThings, which expect to send or validate the Wi-Fi
-network during commissioning.
+Cuando Matter está habilitado, el commissioning Wi-Fi lo gestiona el cluster
+estándar Matter Network Commissioning. Esto mantiene la compatibilidad con
+controladores Matter como SmartThings, que esperan enviar o validar la red Wi-Fi
+durante el commissioning.
 
-The Matter variant intentionally leaves ESP-Matter custom network configuration
-disabled:
+La variante Matter deja intencionadamente desactivada la configuración de red
+personalizada de ESP-Matter:
 
 ```text
 CONFIG_CUSTOM_NETWORK_CONFIG is not set
 ```
 
-The project BLE provisioning flow remains available when Matter is disabled at
-runtime. When Matter is enabled and no Wi-Fi credentials are stored, the firmware
-does not start the Espressif BLE provisioning service, avoiding a conflict with
-CHIPoBLE during Matter commissioning.
+El flujo de provisioning BLE del proyecto sigue disponible cuando Matter está
+desactivado en tiempo de ejecución. Cuando Matter está habilitado y no hay
+credenciales Wi-Fi almacenadas, el firmware no inicia el servicio BLE de
+provisioning de Espressif para evitar conflictos con CHIPoBLE durante el
+commissioning Matter.
 
-When Matter is enabled, the local Wi-Fi station layer initializes ESP-IDF
-networking, starts station mode and observes Wi-Fi/IP events, but it does not
-call `esp_wifi_connect()` or schedule reconnects. ESP-Matter's connectivity
-manager owns station connect and reconnect attempts so only one subsystem drives
-association with the access point.
+Cuando Matter está habilitado, la capa local de estación Wi-Fi inicializa la red
+de ESP-IDF, inicia el modo estación y observa los eventos Wi-Fi/IP, pero no llama
+a `esp_wifi_connect()` ni programa reconexiones. El gestor de conectividad de
+ESP-Matter controla la conexión y las reconexiones para que solo un subsistema
+gestione la asociación con el punto de acceso.
 
-When Matter is enabled, the Wi-Fi provisioning BLE scheme must not use the
-`network_prov_scheme_ble_event_cb_free_btdm` handler. That handler releases BTDM
-memory after provisioning, while ESP-Matter still needs BLE for CHIPoBLE
-commissioning.
+Cuando Matter está habilitado, el esquema BLE de provisioning Wi-Fi no debe usar
+el handler `network_prov_scheme_ble_event_cb_free_btdm`. Ese handler libera la
+memoria BTDM después del provisioning, mientras ESP-Matter todavía necesita BLE
+para el commissioning CHIPoBLE.
 
-The development build currently uses Matter test setup parameters:
+La build de desarrollo utiliza actualmente estos parámetros de prueba Matter:
 
 ```text
 QR payload:     MT:Y.K9042C00KA0648G00
@@ -127,27 +141,28 @@ Discriminator:  3840
 Manual code:    34970112332
 ```
 
-These values are suitable only for local development and must be replaced before
-any production-style firmware.
+Estos valores solo sirven para desarrollo local. Están compilados en la build
+Matter actual y deben reemplazarse antes de utilizar un firmware de producción.
 
-## Runtime Portal
+## Portal en tiempo de ejecución
 
-After Wi-Fi connects, the local configuration portal exposes a Matter tab:
+Después de conectar Wi-Fi, el portal local de configuración expone una pestaña
+Matter:
 
 ```text
 http://<device-ip>/matter-tab
 ```
 
-The tab shows the current development QR/setup payload, manual pairing code,
-setup PIN and discriminator. It also exposes an `Enable Matter service`
-checkbox.
+La pestaña muestra el QR/setup payload de desarrollo actual, el código manual de
+emparejamiento, el PIN de configuración y el discriminator. También incluye una
+casilla `Enable Matter service`.
 
-The checkbox is stored in NVS under the application Matter namespace. When it is
-disabled, the firmware skips Matter startup on the next boot. The build-time
-`APP_ENABLE_MATTER` flag still controls whether ESP-Matter is compiled into the
-firmware at all.
+La casilla se almacena en NVS dentro del namespace Matter de la aplicación.
+Cuando se desactiva, el firmware omite el arranque de Matter en el siguiente
+boot. La opción de compilación `APP_ENABLE_MATTER` sigue controlando si
+ESP-Matter se incluye o no en el firmware.
 
-## Units
+## Unidades
 
 Internal firmware units:
 
@@ -157,7 +172,7 @@ humidity_percent  relative humidity percent
 pressure_hpa      hectopascals
 ```
 
-Matter representations:
+Representaciones Matter:
 
 ```text
 TemperatureMeasurement.MeasuredValue          0.01 degrees Celsius
@@ -165,19 +180,23 @@ RelativeHumidityMeasurement.MeasuredValue    0.01 percent
 PressureMeasurement.MeasuredValue            0.1 kPa, equivalent to hPa
 ```
 
-The Matter layer performs these conversions locally before updating attributes.
+La capa Matter realiza estas conversiones localmente antes de actualizar los
+atributos.
 
-## Next Validation Steps
+## Próximos pasos de validación
 
-1. Enable `APP_ENABLE_MATTER` in local `sdkconfig`.
-2. Ensure ESP-Matter is resolved by the IDF Component Manager.
-3. Keep standard Matter Network Commissioning enabled.
-4. Build for `esp32c3`.
-5. Flash and confirm BME680 and Wi-Fi behavior.
-6. Commission the device with a Matter controller.
-7. Verify endpoint discovery and temperature reporting.
+1. Habilitar `APP_ENABLE_MATTER` en el `sdkconfig` local.
+2. Confirmar que ESP-Matter se resuelve mediante IDF Component Manager.
+3. Mantener habilitado Matter Network Commissioning estándar.
+4. Compilar para `esp32c3`.
+5. Flashear y confirmar el funcionamiento del BME680 y Wi-Fi.
+6. Hacer el commissioning del dispositivo con un controlador Matter.
+7. Verificar el descubrimiento de endpoints y el reporting de temperatura,
+   humedad y presión.
 
-The Matter controller test should confirm endpoint 1 exposes a standard
-Temperature Sensor device type and reports `TemperatureMeasurement.MeasuredValue`.
-Controller-specific compatibility changes should only be added after the
-baseline Matter-only build is validated.
+La prueba con un controlador Matter debe confirmar el modelo de endpoints
+seleccionado y sus atributos de medición correspondientes. Los valores Matter
+se actualizan desde el último snapshot del sensor cada
+`APP_MATTER_UPDATE_INTERVAL_MS` milisegundos, independientemente del intervalo
+de muestreo de 3 segundos del BME680. El reporting formal y la compatibilidad
+con controladores todavía no se consideran completos.

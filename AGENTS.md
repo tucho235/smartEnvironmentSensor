@@ -1,128 +1,61 @@
 # AGENTS.md
 
-## Project
+## Proyecto
 
 **Smart Environment Sensor**
 
-Firmware for an ESP32-C3 SuperMini connected to a Bosch BME680 environmental sensor.
+Firmware para una ESP32-C3 SuperMini conectada a un sensor ambiental Bosch BME680.
+El dispositivo expone mediciones mediante Matter y publica telemetría por MQTT
+hacia la infraestructura local de una Raspberry Pi.
 
-The device is intended to expose environmental measurements through Matter while simultaneously publishing telemetry through MQTT to a local Raspberry Pi infrastructure.
+## Objetivos principales
 
----
+El firmware debe proporcionar temperatura, humedad relativa, presión atmosférica,
+Matter sobre Wi-Fi, telemetría MQTT, recuperación automática de Wi-Fi y MQTT, y
+comunicación robusta con el BME680 mediante I²C.
 
-# Primary Goals
+Las funcionalidades futuras pueden incluir resistencia del gas, calidad del aire,
+OTA, diagnósticos y administración avanzada de energía. No implementarlas salvo
+solicitud explícita.
 
-The firmware must provide:
+## Hardware
 
-* Temperature measurement.
-* Relative humidity measurement.
-* Atmospheric pressure measurement.
-* Matter support over Wi-Fi.
-* MQTT telemetry.
-* Automatic Wi-Fi recovery.
-* Automatic MQTT recovery.
-* Robust BME680/I²C communication.
+MCU objetivo: `ESP32-C3 SuperMini`.
 
-Future functionality may include:
+Sensor: `Bosch BME680`, conectado mediante I²C.
 
-* Gas resistance measurement.
-* Air quality information.
-* OTA firmware updates.
-* Device diagnostics.
-* Advanced power management.
-
-Do not implement future functionality unless explicitly requested.
-
----
-
-# Hardware
-
-Target MCU:
-
-```text
-ESP32-C3 SuperMini
-```
-
-Sensor:
-
-```text
-Bosch BME680
-```
-
-Communication between the MCU and sensor:
-
-```text
-I²C
-```
-
-The initial target board and GPIO assignments have been documented below.
-
-Initial hardware decision:
+Cableado inicial:
 
 ```text
 BME680 VCC  -> ESP32-C3 SuperMini 3V3
 BME680 GND  -> ESP32-C3 SuperMini GND
 BME680 SDA  -> ESP32-C3 SuperMini GPIO4
 BME680 SCL  -> ESP32-C3 SuperMini GPIO5
-BME680 SDO  -> GND, selecting I²C address 0x76
-BME680 CS   -> 3V3, selecting I²C mode
+BME680 SDO  -> GND, dirección I²C 0x76
+BME680 CS   -> 3V3, modo I²C
 ```
 
-Use these pins as the initial documented wiring unless project configuration is later updated. Avoid defaulting to GPIO8/GPIO9 for I²C on this board without explicitly re-checking boot/strapping implications.
+Usar estos pines salvo que se actualice la configuración del proyecto. No usar
+GPIO8/GPIO9 para I²C sin revisar antes el arranque y strapping de la placa.
 
----
+## Stack de software
 
-# Software Stack
+Usar ESP-IDF, ESP-Matter, FreeRTOS y C/C++. No migrar a Arduino. Preferir
+componentes y APIs oficiales de Espressif y evitar dependencias innecesarias.
 
-Use:
+## Arquitectura Matter
 
-* ESP-IDF
-* ESP-Matter
-* FreeRTOS
-* C/C++
+Implementar el dispositivo como un Matter Node con device types y clusters
+estándar. El modelo actual depende de la configuración: por defecto usa un
+endpoint ambiental con temperatura, humedad y presión; también admite endpoints
+separados, solo temperatura o Thermostat para validación.
 
-Do **not** migrate the project to Arduino unless explicitly requested.
+Matter debe permanecer independiente de MQTT. Un fallo del broker o de la
+Raspberry Pi no debe impedir el funcionamiento de Matter.
 
-Prefer official Espressif components and APIs whenever practical.
+## Arquitectura del sensor
 
-Avoid unnecessary third-party dependencies.
-
----
-
-# Matter Architecture
-
-The device should be implemented as a Matter Node with multiple endpoints.
-
-Initial architecture:
-
-```text
-Matter Node
-│
-├── Endpoint 1
-│   └── Temperature Sensor
-│
-├── Endpoint 2
-│   └── Humidity Sensor
-│
-└── Endpoint 3
-    └── Pressure Sensor
-```
-
-Use standard Matter device types and clusters.
-
-Do not invent proprietary Matter attributes when an appropriate standard cluster exists.
-
-Matter must remain independent from MQTT.
-
-A failure of MQTT or the Raspberry Pi must not prevent Matter from operating.
-
----
-
-# Sensor Architecture
-
-Keep BME680 access isolated from Matter and MQTT logic.
-
-Preferred architecture:
+Mantener el acceso al BME680 aislado de Matter y MQTT:
 
 ```text
 BME680 Driver
@@ -135,567 +68,151 @@ Sensor abstraction
       └──────────► MQTT
 ```
 
-Do not allow Matter-specific code to directly manipulate the low-level BME680 driver.
+Matter y MQTT deben consumir snapshots de `sensor_service`; no deben acceder
+directamente al driver ni al bus I²C. Las unidades internas son °C, %RH, hPa o
+Pa y Ω. Las conversiones Matter y MQTT deben hacerse en sus respectivas capas.
 
-Do not allow MQTT-specific code to directly access the I²C hardware.
+## Medición y reporting
 
-The sensor abstraction should expose physical measurements using appropriate native units, for example:
+El BME680 se muestrea cada 3 segundos, intervalo definido en
+`firmware/main/include/app_config.h`. El muestreo, el reporting Matter y la
+publicación MQTT deben configurarse de forma independiente.
 
-```text
-temperature → °C
-humidity    → %RH
-pressure    → hPa or Pa
-gas         → Ω
-```
+Matter debe usar reporting apropiado y cambios significativos cuando sea
+posible. No copiar valores flotantes directamente a atributos Matter sin
+verificar tipo, rango, unidad y escala.
 
-Conversion to Matter-specific representations should occur at the Matter interface layer.
+## MQTT
 
-Conversion to InfluxDB/MQTT representations should occur at the telemetry layer.
-
----
-
-# Measurement
-
-The BME680 should be sampled periodically.
-
-Initial target:
+MQTT se usa para telemetría local:
 
 ```text
-2–5 seconds
+ESP32-C3 -> MQTT Broker -> Raspberry Pi -> InfluxDB -> Grafana
 ```
 
-Do not assume that the sensor sampling interval must equal the Matter reporting interval or MQTT publishing interval.
+El ESP32 no debe conectarse directamente a InfluxDB. El topic y payload deben
+estar documentados. MQTT debe reconectarse tras interrupciones de Wi-Fi,
+reinicios del broker o fallos temporales de red.
 
-These should be independently configurable.
+## Conectividad
 
-Avoid unnecessary sensor reads and network traffic.
+Wi-Fi debe reconectarse automáticamente después de pérdidas temporales. Cuando
+Matter está activo, ESP-Matter controla la conexión y reconexión; en otro caso,
+lo hace la capa Wi-Fi local. Los fallos de red no deben bloquear la tarea del
+sensor indefinidamente.
 
----
+## Manejo de errores
 
-# Matter Reporting
+Gestionar fallos del BME680, errores I²C, mediciones inválidas, desconexiones
+Wi-Fi/MQTT, problemas Matter y respuestas inesperadas. Usar códigos de error y
+logs de ESP-IDF, comprobar retornos explícitamente y aplicar espera/backoff,
+nunca bucles de reintento ajustados.
 
-Matter reporting should be based on appropriate reporting configuration and meaningful value changes where possible.
+## I²C
 
-Do not blindly report every sensor sample unless required.
+Usar las APIs I²C de ESP-IDF correspondientes a la versión seleccionada y
+centralizar la inicialización. No inicializar el bus desde varios módulos. No
+implementar recuperación del bus hasta que la comunicación normal funcione y se
+conozca el fallo concreto.
 
-Respect the data types, ranges, units and scaling defined by the Matter clusters.
+## FreeRTOS y seguridad de hilos
 
-Do not directly copy floating-point sensor values into Matter attributes without verifying the required Matter representation.
+Usar tareas FreeRTOS solo cuando sean necesarias, `vTaskDelay()` y APIs orientadas
+a eventos. Evitar busy loops y bloqueos prolongados. Proteger los datos
+compartidos con mutex, colas, secciones críticas o snapshots inmutables. No
+introducir estado global mutable sin considerar la concurrencia.
 
----
+## Configuración y secretos
 
-# MQTT
+Centralizar pines, dirección BME680, intervalos, broker, puerto y topics. Usar
+Kconfig o mecanismos apropiados de ESP-IDF. Nunca incluir en Git contraseñas,
+tokens, claves, certificados privados, credenciales Matter ni datos personales
+de infraestructura. Revisar `.gitignore`; las credenciales locales deben quedar
+en `sdkconfig` ignorado u otros archivos excluidos.
 
-MQTT is used for local telemetry.
+## Logging
 
-Preferred architecture:
+Usar `ESP_LOGE()`, `ESP_LOGW()`, `ESP_LOGI()`, `ESP_LOGD()` y `ESP_LOGV()` con
+un TAG consistente. Registrar inicialización y errores del sensor, estados de
+Wi-Fi/MQTT, commissioning Matter y mediciones de depuración. Nunca registrar
+credenciales ni información de red sensible y evitar logs excesivos en producción.
 
-```text
-ESP32-C3
-    │
-    │ MQTT
-    ▼
-MQTT Broker
-    │
-    ▼
-Raspberry Pi
-    │
-    ▼
-InfluxDB
-    │
-    ▼
-Grafana
-```
+## Estilo de código
 
-The ESP32 must not connect directly to InfluxDB unless explicitly requested.
+Usar C/C++ moderno apropiado para ESP-IDF, nombres claros, funciones pequeñas,
+manejo explícito de errores, `const`, RAII cuando corresponda, estado global
+mínimo y componentes modulares. Evitar funciones gigantes, números mágicos,
+efectos ocultos, macros innecesarias, copias y operaciones de red bloqueantes en
+el código del sensor.
 
-MQTT topics and payload format should be documented before implementation.
+## Estructura y flujo de desarrollo
 
-A structured payload may be used, for example:
+La estructura actual está definida en `README.md`. Antes de cambios importantes:
 
-```json
-{
-  "temperature": 23.47,
-  "humidity": 54.21,
-  "pressure": 1008.32
-}
-```
+1. Inspeccionar el proyecto, `README.md` y `AGENTS.md`.
+2. Revisar las versiones actuales de ESP-IDF y ESP-Matter.
+3. Entender la arquitectura existente.
+4. Hacer el cambio mínimo razonable.
+5. Compilar cuando existan archivos de build y corregir errores si corresponde.
+6. Revisar el diff y actualizar la documentación cuando cambie el comportamiento.
 
-Do not introduce a final topic/payload convention without documenting it.
+No sobrescribir funcionalidad existente innecesariamente.
 
----
+## Compatibilidad de versiones
 
-# Connectivity
+No actualizar ESP-IDF, ESP-Matter ni dependencias BME680 arbitrariamente.
+Determinar primero las versiones, comprobar compatibilidad, documentar el motivo,
+hacer el cambio mínimo y compilar el proyecto completo. Si una API no está
+clara, inspeccionar el código fuente del framework instalado en lugar de adivinar.
 
-Wi-Fi must reconnect automatically after temporary connectivity loss.
+## Build y pruebas
 
-MQTT must reconnect automatically after:
-
-* Wi-Fi interruption.
-* Broker restart.
-* Temporary network failure.
-
-Connection failures must not block the main sensor task indefinitely.
-
-Avoid long blocking operations in FreeRTOS tasks.
-
----
-
-# Error Handling
-
-The firmware must handle:
-
-* BME680 initialization failure.
-* I²C communication errors.
-* Invalid sensor readings.
-* Wi-Fi disconnection.
-* MQTT disconnection.
-* Matter communication problems.
-* Unexpected sensor responses.
-
-Use appropriate ESP-IDF error handling mechanisms.
-
-Prefer explicit error checking over silently ignoring return values.
-
-Do not continuously retry a failing operation in a tight loop.
-
-Use appropriate retry delays/backoff.
-
----
-
-# I²C
-
-The BME680 driver must use the ESP-IDF I²C APIs appropriate for the selected ESP-IDF version.
-
-I²C initialization must be centralized.
-
-Avoid initializing the I²C peripheral multiple times from unrelated modules.
-
-If I²C communication becomes corrupted, consider implementing bus recovery rather than requiring a complete device reboot.
-
-Do not implement I²C recovery until normal communication is working and the failure mode is understood.
-
----
-
-# FreeRTOS
-
-Use FreeRTOS tasks for periodic operations where appropriate.
-
-Potential tasks:
-
-```text
-sensor_task
-mqtt_task / MQTT event handling
-Matter event handling
-```
-
-Avoid creating unnecessary tasks.
-
-Prefer event-driven APIs where provided by ESP-IDF or ESP-Matter.
-
-Do not use arbitrary busy loops or `delay()`-style blocking logic.
-
-Use:
-
-```cpp
-vTaskDelay()
-```
-
-or appropriate FreeRTOS synchronization mechanisms.
-
----
-
-# Thread Safety
-
-Sensor data may be accessed by multiple subsystems.
-
-If sensor data is shared between tasks, use appropriate synchronization.
-
-Possible approaches include:
-
-* Mutex.
-* Critical section.
-* Message queue.
-* Immutable sensor sample structure.
-
-Do not introduce shared global mutable state without considering concurrency.
-
----
-
-# Configuration
-
-Hardware-specific configuration should not be scattered throughout the source code.
-
-Examples:
-
-```text
-I²C SDA pin
-I²C SCL pin
-BME680 address
-measurement interval
-MQTT broker
-MQTT port
-MQTT topics
-```
-
-Configuration should eventually be centralized.
-
-Use Kconfig or appropriate ESP-IDF configuration mechanisms where practical.
-
-Credentials must never be committed to Git.
-
----
-
-# Secrets
-
-Never commit:
-
-* Wi-Fi passwords.
-* MQTT passwords.
-* API keys.
-* Certificates containing private keys.
-* Matter credentials.
-* Tokens.
-* Personal infrastructure credentials.
-
-Use local configuration files or ESP-IDF configuration mechanisms that are excluded from version control.
-
-Review `.gitignore` before committing.
-
----
-
-# Logging
-
-Use ESP-IDF logging facilities.
-
-Prefer:
-
-```cpp
-ESP_LOGE()
-ESP_LOGW()
-ESP_LOGI()
-ESP_LOGD()
-ESP_LOGV()
-```
-
-Use a consistent module TAG.
-
-Example:
-
-```cpp
-static const char *TAG = "BME680";
-```
-
-Useful logs include:
-
-* Sensor initialization.
-* Sensor errors.
-* Wi-Fi connection state.
-* MQTT connection state.
-* Matter commissioning state.
-* Sensor measurements during debugging.
-
-Do not log credentials or sensitive network information.
-
-Avoid excessive logging in production paths.
-
----
-
-# Units
-
-Internally use physically meaningful units.
-
-Recommended:
-
-```text
-Temperature: °C
-Humidity:    %RH
-Pressure:    Pa or hPa
-Gas:         Ω
-```
-
-Matter-specific conversion/scaling must happen at the Matter interface.
-
-MQTT/InfluxDB units must be documented.
-
-Do not mix units silently.
-
-For example, do not store pressure sometimes as Pa and sometimes as hPa.
-
----
-
-# Code Style
-
-Use modern C/C++ appropriate for ESP-IDF.
-
-Prefer:
-
-* Clear naming.
-* Small functions.
-* Explicit error handling.
-* RAII where appropriate in C++.
-* `const` where applicable.
-* Minimal global state.
-* Modular components.
-
-Avoid:
-
-* Giant functions.
-* Magic numbers.
-* Hidden side effects.
-* Unnecessary macros.
-* Copy/paste implementations.
-* Blocking network operations inside sensor code.
-
----
-
-# Project Structure
-
-Expected structure:
-
-```text
-smartEnvironmentSensor/
-│
-├── firmware/
-│   ├── main/
-│   │   ├── app_main.cpp
-│   │   ├── bme680_sensor.cpp
-│   │   ├── bme680_sensor.h
-│   │   ├── matter_device.cpp
-│   │   ├── matter_device.h
-│   │   └── CMakeLists.txt
-│   │
-│   ├── components/
-│   │   └── bme680/
-│   │
-│   ├── CMakeLists.txt
-│   └── sdkconfig.defaults
-│
-├── hardware/
-├── docs/
-├── examples/
-├── README.md
-├── AGENTS.md
-└── .gitignore
-```
-
-The structure may evolve as implementation progresses.
-
-The repository may remain documentation-only until the ESP-IDF/ESP-Matter project is intentionally created. Do not add placeholder firmware files, generated build files, or dependencies during documentation-only setup work.
-
----
-
-# Development Workflow
-
-Before making significant changes:
-
-1. Inspect the existing project.
-2. Read `README.md`.
-3. Read `AGENTS.md`.
-4. Inspect the current ESP-IDF/ESP-Matter versions when a firmware project exists.
-5. Understand the existing architecture.
-6. Make the smallest reasonable change.
-7. Build the project when build files exist.
-8. Fix compilation errors when implementation work is in scope.
-9. Review the resulting diff.
-10. Update documentation when behavior or architecture changes.
-
-Do not overwrite working functionality unnecessarily.
-
----
-
-# Version Compatibility
-
-Do not arbitrarily upgrade:
-
-* ESP-IDF.
-* ESP-Matter.
-* BME680 dependencies.
-
-Before changing framework versions:
-
-1. Determine the current versions.
-2. Check compatibility.
-3. Document the reason.
-4. Make the minimum required changes.
-5. Build and test the complete project.
-
-Avoid mixing APIs from different ESP-Matter/ESP-IDF releases.
-
-If an API is unclear, inspect the installed framework/component source and documentation rather than guessing.
-
----
-
-# Build Requirements
-
-Target:
-
-```text
-esp32c3
-```
-
-Expected commands:
+Objetivo: `esp32c3`.
 
 ```bash
 idf.py set-target esp32c3
 idf.py build
 idf.py flash
 idf.py monitor
-```
-
-Combined:
-
-```bash
 idf.py flash monitor
 ```
 
-A code change should not be considered complete if the project does not build successfully.
+Validar incrementalmente: primero BME680/I²C y lecturas válidas; después Matter
+aislado; luego mediciones reales en Matter; MQTT; integración con la
+infraestructura; y finalmente pruebas prolongadas. No depurar todos los
+subsistemas simultáneamente si pueden aislarse.
 
----
+## Funcionalidades futuras
 
-# Testing Strategy
+Gas, calidad del aire, OTA, diagnósticos, RSSI, uptime, intervalos configurables,
+parámetros MQTT, persistencia NVS avanzada, optimización energética y deep sleep
+están fuera de alcance hasta recibir solicitud explícita.
 
-Development should proceed incrementally.
+## Restricciones importantes
 
-## Stage 1
+1. No reemplazar ESP-IDF por Arduino.
+2. No acoplar Matter con MQTT.
+3. No acoplar el driver BME680 con Matter.
+4. No hacer que la Raspberry Pi sea necesaria para Matter.
+5. No incluir credenciales hard-codeadas.
+6. No adivinar GPIO ni tipos o escalas Matter.
+7. No actualizar dependencias sin comprobar compatibilidad.
+8. No introducir dependencias de terceros innecesarias.
+9. No implementar funcionalidades futuras sin aprobación explícita.
+10. Compilar después de cambios significativos de código.
+11. Mantener sincronizada la documentación con la arquitectura.
 
-Verify:
+## Estado actual
 
-```text
-ESP32-C3
-   │
-   ▼
-I²C
-   │
-   ▼
-BME680
-```
+El proyecto está en desarrollo inicial. Ya existen la base ESP-IDF, el driver y
+servicio BME680, provisioning Wi-Fi BLE, portal web local, MQTT, persistencia
+NVS, diagnósticos de memoria y la integración Matter opcional. El commissioning,
+la validación completa con controladores Matter, el reporting formal, OTA, gas y
+calidad del aire siguen pendientes.
 
-Confirm:
+## Definición de terminado
 
-* Device detected.
-* Temperature valid.
-* Humidity valid.
-* Pressure valid.
-
-## Stage 2
-
-Verify Matter independently using simulated sensor values if necessary.
-
-## Stage 3
-
-Replace simulated values with BME680 measurements.
-
-## Stage 4
-
-Add MQTT.
-
-## Stage 5
-
-Integrate with InfluxDB/Grafana.
-
-## Stage 6
-
-Perform long-running stability tests.
-
-Do not debug all subsystems simultaneously when a simpler isolated test is possible.
-
----
-
-# Future Features
-
-Potential future features:
-
-```text
-- Gas resistance
-- Air quality
-- OTA
-- Device diagnostics
-- Wi-Fi RSSI telemetry
-- Uptime telemetry
-- Configurable measurement interval
-- Configurable MQTT parameters
-- NVS persistence
-- Power optimization
-- Deep sleep
-```
-
-These are intentionally out of scope until requested.
-
----
-
-# Important Constraints
-
-1. Do not replace ESP-IDF with Arduino.
-2. Do not couple Matter to MQTT.
-3. Do not couple the BME680 driver to Matter.
-4. Do not make the Raspberry Pi a dependency for Matter operation.
-5. Do not hard-code credentials.
-6. Do not guess hardware GPIO assignments.
-7. Do not guess Matter cluster data types or scaling.
-8. Do not upgrade dependencies without checking compatibility.
-9. Do not introduce unnecessary third-party libraries.
-10. Do not implement future features without explicit approval.
-11. Always build after meaningful code changes.
-12. Keep documentation synchronized with architectural changes.
-
----
-
-# Current Project Status
-
-The project is currently in the design/initial development phase.
-
-Confirmed architecture:
-
-```text
-ESP32-C3
-    │
-    │ I²C
-    ▼
-BME680
-    │
-    ├──────────────► Matter
-    │
-    └──────────────► MQTT
-                         │
-                         ▼
-                    Raspberry Pi
-                         │
-                         ▼
-                      InfluxDB
-                         │
-                         ▼
-                       Grafana
-```
-
-Initial Matter measurements:
-
-```text
-Temperature
-Humidity
-Pressure
-```
-
-Future:
-
-```text
-Gas resistance
-Air quality
-OTA
-Diagnostics
-```
-
----
-
-# Definition of Done
-
-A feature is considered complete when:
-
-* The implementation is documented.
-* The project builds successfully.
-* Error handling is implemented appropriately.
-* No credentials are committed.
-* Existing functionality remains intact.
-* Relevant configuration is documented.
-* The code follows the project architecture.
-* The resulting Git diff has been reviewed.
+Una funcionalidad está terminada cuando está documentada, el proyecto compila,
+el manejo de errores es apropiado, no se comprometen credenciales, no se rompe
+la funcionalidad existente, la configuración relevante está documentada, el
+código respeta la arquitectura y el diff fue revisado.

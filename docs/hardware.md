@@ -1,18 +1,18 @@
 # Hardware
 
-## Target Board
+## Placa objetivo
 
-The initial target board is an ESP32-C3 SuperMini.
+La placa objetivo inicial es una ESP32-C3 SuperMini.
 
-If a different ESP32-C3 board variant is used later, review its pinout,
-bootstrapping pins, flash configuration, and available GPIOs before changing
-the firmware configuration.
+Si más adelante se utiliza otra variante de ESP32-C3, revisar su pinout, los
+pines de arranque, la configuración de flash y los GPIO disponibles antes de
+cambiar la configuración del firmware.
 
-## Environmental Sensor
+## Sensor ambiental
 
-The initial sensor is a Bosch BME680 connected over I2C.
+El sensor inicial es un Bosch BME680 conectado mediante I²C.
 
-Initial wiring:
+Cableado inicial:
 
 ```text
 BME680          ESP32-C3 SuperMini
@@ -25,29 +25,29 @@ SDO       ---> GND   (I2C address 0x76)
 CS        ---> 3V3   (I2C mode)
 ```
 
-## I2C Notes
+## Notas sobre I²C
 
-The initial I2C address is `0x76`, selected by connecting `SDO` to ground.
+La dirección I²C inicial es `0x76`, seleccionada conectando `SDO` a GND.
 
-GPIO4 and GPIO5 are the documented initial SDA/SCL pins for this project.
-Do not move I2C to GPIO8/GPIO9 on the ESP32-C3 SuperMini without checking the
-specific board variant and boot/strapping implications.
+GPIO4 y GPIO5 son los pines SDA/SCL iniciales documentados para este proyecto.
+No mover I²C a GPIO8/GPIO9 en la ESP32-C3 SuperMini sin comprobar la variante
+concreta de la placa y las implicaciones sobre arranque y strapping.
 
-I2C initialization is centralized in the BME680 sensor layer. Matter and MQTT
-code should consume sensor snapshots and must not access the bus directly.
+La inicialización de I²C está centralizada en la capa del sensor BME680. El
+código de Matter y MQTT debe consumir snapshots del sensor y no acceder al bus
+directamente.
 
-## Initial Firmware Check
+## Comprobación inicial del firmware
 
-The firmware initializes I2C on GPIO4/GPIO5, initializes the Bosch BME68x
-Sensor API, and reads temperature, relative humidity, and pressure in forced
-mode.
+El firmware inicializa I²C en GPIO4/GPIO5, inicializa la API de sensores BME68x
+de Bosch y lee temperatura, humedad relativa y presión en modo forzado.
 
-Expected success log:
+Registro esperado en caso de éxito:
 
 ```text
 BME680 initialized and configured
 BME680 sample: temperature=... C, humidity=... %, pressure=... hPa
 ```
 
-If the device is not detected, re-check power, ground, SDA/SCL placement, `SDO`
-to ground, and `CS` to 3V3.
+Si no se detecta el dispositivo, comprobar nuevamente la alimentación, GND, la
+ubicación de SDA/SCL, `SDO` conectado a GND y `CS` conectado a 3V3.

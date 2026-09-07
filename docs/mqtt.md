@@ -1,33 +1,34 @@
 # MQTT
 
-MQTT telemetry is implemented using the managed Espressif ESP-MQTT component.
+La telemetría MQTT está implementada mediante el componente administrado
+ESP-MQTT de Espressif.
 
-The ESP32-C3 will publish telemetry to a local MQTT broker, expected to run on
-the Raspberry Pi. The ESP32 must not connect directly to InfluxDB.
+La ESP32-C3 publica telemetría en un broker MQTT local, previsto para ejecutarse
+en la Raspberry Pi. El ESP32 no debe conectarse directamente a InfluxDB.
 
-MQTT is optional at runtime. If no broker URI is configured, the firmware keeps
-sampling the BME680 and skips MQTT startup.
+MQTT es opcional en tiempo de ejecución. Si no se configura una URI de broker,
+el firmware continúa muestreando el BME680 y omite el arranque de MQTT.
 
-The firmware stores MQTT configuration in NVS under the application namespace.
-Normal firmware flashes do not erase this configuration.
+El firmware almacena la configuración MQTT en NVS, dentro del namespace de la
+aplicación. Un flasheo normal del firmware no borra esta configuración.
 
-When MQTT is configured, the telemetry module waits until Wi-Fi has an IP
-address before starting the MQTT client. This avoids an expected initial broker
-connection failure during boot while Wi-Fi is still associating.
+Cuando MQTT está configurado, el módulo de telemetría espera hasta que Wi-Fi
+obtiene una dirección IP antes de iniciar el cliente MQTT. Esto evita el fallo
+de conexión inicial esperado mientras Wi-Fi todavía se asocia.
 
-## Configuration Sources
+## Fuentes de configuración
 
-The preferred runtime configuration path is the local web configuration portal.
-After Wi-Fi provisioning succeeds, open the device IP printed in the serial
-monitor:
+La forma preferida de configurar el dispositivo en tiempo de ejecución es el
+portal web local. Después de completar el provisioning Wi-Fi, abrir la IP del
+dispositivo que aparece en el monitor serie:
 
 ```text
 http://<device-ip>/mqtt-tab
 ```
 
-The root URL (`http://<device-ip>/`) also opens the MQTT tab for compatibility.
+La URL raíz (`http://<device-ip>/`) también abre la pestaña MQTT por compatibilidad.
 
-The portal lets the user configure:
+El portal permite configurar:
 
 ```text
 Enable MQTT service
@@ -38,33 +39,33 @@ Telemetry topic
 Publish interval
 ```
 
-The password is never rendered back into the form. Leaving the password field
-empty keeps the existing password. A dedicated checkbox clears the stored
-password. After saving, the device restarts so MQTT reconnects using the new
-settings.
+La contraseña nunca vuelve a mostrarse en el formulario. Dejar vacío el campo
+de contraseña conserva la contraseña existente. Una casilla específica permite
+borrar la contraseña almacenada. Después de guardar, el dispositivo se reinicia
+para que MQTT se reconecte usando la nueva configuración.
 
-If `Enable MQTT service` is unchecked, the firmware keeps the stored MQTT
-settings but does not create the MQTT client, connect to the broker, or publish
-telemetry.
+Si `Enable MQTT service` está desmarcado, el firmware conserva la configuración
+MQTT almacenada, pero no crea el cliente MQTT, no se conecta al broker ni publica
+telemetría.
 
-For migration and local development, the firmware can also seed MQTT NVS
-configuration from `idf.py menuconfig` if NVS does not already contain a broker
-URI.
+Para migración y desarrollo local, el firmware también puede inicializar la
+configuración MQTT en NVS desde `idf.py menuconfig` si NVS todavía no contiene
+una URI de broker.
 
-Configure bootstrap values:
+Configurar valores iniciales:
 
 ```bash
 cd firmware
 idf.py menuconfig
 ```
 
-Then open:
+Luego abrir:
 
 ```text
 Smart Environment Sensor Configuration
 ```
 
-Set:
+Establecer:
 
 ```text
 MQTT broker URI bootstrap
@@ -74,30 +75,31 @@ MQTT telemetry topic
 MQTT telemetry publish interval in milliseconds
 ```
 
-Example broker URI:
+Ejemplo de URI de broker:
 
 ```text
 mqtt://192.168.3.10:1883
 ```
 
-The MQTT username and password are written to local `firmware/sdkconfig`, which
-is ignored by Git. Do not add broker credentials to `sdkconfig.defaults`.
+El usuario y la contraseña MQTT se escriben en el archivo local
+`firmware/sdkconfig`, ignorado por Git. No agregar credenciales del broker a
+`sdkconfig.defaults`.
 
-After the first successful boot, the firmware stores these values in NVS. Future
-normal flashes can keep using the NVS copy without recompiling credentials into
-the firmware.
+Después del primer arranque exitoso, el firmware almacena estos valores en NVS.
+Los siguientes flasheos normales pueden seguir usando la copia de NVS sin
+compilar las credenciales dentro del firmware.
 
-## BLE Provisioning Payload
+## Payload de provisioning BLE
 
-During first Wi-Fi provisioning, the firmware exposes two BLE provisioning
-endpoints for MQTT configuration:
+Durante el primer provisioning Wi-Fi, el firmware expone dos endpoints BLE para
+configurar MQTT:
 
 ```text
 mqtt-config
 custom-data
 ```
 
-Both endpoints accept the same JSON payload:
+Ambos endpoints aceptan el mismo payload JSON:
 
 ```json
 {
@@ -110,17 +112,17 @@ Both endpoints accept the same JSON payload:
 }
 ```
 
-Only `broker_uri` is required when MQTT is enabled and no previous MQTT
-configuration exists. Set `"enabled": false` to keep MQTT disabled without
-requiring a broker URI. Omitted optional fields keep their existing value or
-fall back to the project defaults.
+Solo se requiere `broker_uri` cuando MQTT está habilitado y no existe una
+configuración MQTT previa. Establecer `"enabled": false` mantiene MQTT
+deshabilitado sin requerir una URI de broker. Los campos opcionales omitidos
+conservan su valor actual o utilizan los valores predeterminados del proyecto.
 
-The `custom-data` endpoint is compatible with Espressif's `esp_prov.py`
-`--custom_data` option.
+El endpoint `custom-data` es compatible con la opción `--custom_data` de
+`esp_prov.py` de Espressif.
 
-The official Espressif BLE Provisioning Android app configures Wi-Fi but does
-not display custom MQTT fields. Use the web portal for the normal phone/laptop
-configuration flow.
+La aplicación oficial Android de provisioning BLE de Espressif configura Wi-Fi,
+pero no muestra campos MQTT personalizados. Para el flujo normal de
+configuración desde teléfono u ordenador, utilizar el portal web.
 
 ## Topic
 
@@ -138,7 +140,7 @@ smart-environment-sensor/bme680/state
 }
 ```
 
-## Units
+## Unidades
 
 ```text
 temperature_c    degrees Celsius
@@ -146,28 +148,30 @@ humidity_percent relative humidity percent
 pressure_hpa     hectopascals
 ```
 
-## Publishing Behavior
+## Comportamiento de publicación
 
-MQTT should publish the latest `sensor_service` snapshot. It must not access the
-BME680 driver or I2C bus directly.
+MQTT publica el snapshot más reciente de `sensor_service`. No debe acceder
+directamente al driver BME680 ni al bus I²C.
 
-The initial MQTT publish interval is 10 seconds. It is independent from the
-sensor sampling interval.
+El intervalo inicial de publicación MQTT es de 10 segundos, independiente del
+intervalo de muestreo del sensor.
 
-MQTT reconnect handling should be independent from Matter. A broker or
-Raspberry Pi failure must not stop sensor sampling or Matter operation.
+La reconexión MQTT es independiente de Matter. Un fallo del broker o de la
+Raspberry Pi no debe detener el muestreo ni el funcionamiento de Matter.
 
-The initial hardware test confirmed telemetry publishing to a Mosquitto broker
-running on the Raspberry Pi with username/password authentication.
+La prueba inicial en hardware confirmó la publicación de telemetría en un
+broker Mosquitto ejecutándose en la Raspberry Pi, con autenticación mediante
+usuario y contraseña.
 
-The Raspberry Pi observability stack is maintained in the separate
+La infraestructura de observabilidad de la Raspberry Pi se mantiene en el
+repositorio separado
 [`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure)
-repository. It uses Telegraf to subscribe to MQTT, write the JSON fields to
-InfluxDB, and provision Grafana dashboards.
+Utiliza Telegraf para suscribirse a MQTT, escribir los campos JSON en InfluxDB y
+provisionar dashboards de Grafana.
 
-## Raspberry Pi Test
+## Prueba desde la Raspberry Pi
 
-From the Raspberry Pi broker host:
+Desde el host de la Raspberry Pi donde se ejecuta el broker:
 
 ```bash
 sudo docker exec -it mosquitto \
@@ -175,7 +179,7 @@ sudo docker exec -it mosquitto \
   -t 'smart-environment-sensor/#' -v
 ```
 
-Expected telemetry:
+Telemetría esperada:
 
 ```text
 smart-environment-sensor/bme680/state {"temperature_c":24.32,"humidity_percent":50.44,"pressure_hpa":1011.62}

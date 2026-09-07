@@ -1,13 +1,14 @@
-# Bosch BME68x Sensor API
+# API de sensores BME68x de Bosch
 
-This component vendors Bosch Sensortec's BME68x Sensor API for the BME680/BME688
-family.
+Este componente incluye dentro del repositorio la API de sensores BME68x de
+Bosch Sensortec para la familia BME680/BME688.
 
-Source:
+Fuente:
 
 ```text
 https://github.com/boschsensortec/BME68x_SensorAPI
 ```
 
-The vendored source files keep their original BSD-3-Clause license headers.
-Project-specific ESP-IDF/I2C integration lives in the `main` component.
+Los archivos incluidos conservan sus encabezados de licencia BSD-3-Clause
+originales. La integración específica con ESP-IDF e I²C del proyecto se
+encuentra en el componente `main`.

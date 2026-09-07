@@ -2,11 +2,14 @@
 
 Firmware para un **ESP32-C3** conectado a un sensor ambiental **Bosch BME680**, con soporte para **Matter** y telemetría mediante **MQTT** hacia un broker local.
 
-El objetivo es construir un sensor ambiental compacto, autónomo y extensible que pueda integrarse tanto en sistemas de domótica compatibles con Matter como en una infraestructura propia de monitorización.
+El firmware ya integra la lectura periódica del sensor, provisioning Wi-Fi por BLE,
+un portal HTTP local, telemetría MQTT y una integración Matter opcional. Matter y
+MQTT son independientes: un broker caído no detiene el muestreo ni el servicio
+Matter.
 
 ---
 
-## Features
+## Funcionalidades
 
 ### Sensor
 
@@ -27,15 +30,12 @@ La medición de gas y calidad del aire quedará preparada para una futura etapa.
 
 ### Matter
 
-El ESP32-C3 funcionará como dispositivo Matter sobre Wi-Fi.
-
-El dispositivo expondrá inicialmente:
-
-* Temperature Sensor
-* Humidity Sensor
-* Pressure Sensor
-
-La intención es utilizar los clusters y device types estándar de Matter, evitando implementar características propietarias cuando exista una representación estándar.
+Matter se compila opcionalmente y se habilita mediante `APP_ENABLE_MATTER`.
+El modelo depende de la configuración: por defecto hay un endpoint ambiental con
+temperatura, humedad y presión; `APP_MATTER_SEPARATE_SENSOR_ENDPOINTS` crea un
+endpoint por medición; `APP_MATTER_TEMPERATURE_ONLY` crea un `Temperature Sensor`
+y `APP_MATTER_THERMOSTAT_ONLY` crea un `Thermostat` para validación. El endpoint
+`PowerSource` es opcional y está desactivado en la build estándar.
 
 ### Telemetría
 
@@ -69,12 +69,12 @@ posterior son responsabilidad de `smartInfrastructure`.
 
 # Hardware
 
-## Microcontroller
+## Microcontrolador
 
 * ESP32-C3 SuperMini
 * Wi-Fi
 * Bluetooth LE
-* Matter over Wi-Fi
+* Matter sobre Wi-Fi
 
 La placa objetivo inicial es un **ESP32-C3 SuperMini**. Si más adelante se usa una variante distinta de ESP32-C3, se deberá revisar especialmente el pinout, los pines de arranque y la disponibilidad de GPIO.
 
@@ -126,9 +126,9 @@ La aplicación se dividirá conceptualmente en varias capas:
 
 ```text
 ┌──────────────────────────────────────────┐
-│              Application                 │
+│              Aplicación                 │
 │                                          │
-│        Sensor management / logic         │
+│       Gestión/lógica del sensor          │
 └──────────────────┬───────────────────────┘
                    │
         ┌──────────┴───────────┐
@@ -153,19 +153,18 @@ La aplicación se dividirá conceptualmente en varias capas:
 La lectura del sensor y la comunicación Matter/MQTT deben mantenerse desacopladas.
 
 Actualmente, el muestreo del BME680 corre en una tarea FreeRTOS dedicada
-(`sensor_task`). Esa tarea mantiene una última muestra protegida por mutex para
-que las futuras capas Matter y MQTT puedan leer datos físicos sin acceder al bus
-I²C ni al driver BME680 directamente.
+(`sensor_task`) cada 3 segundos. La última muestra se mantiene en un snapshot
+protegido por mutex, con timestamp, secuencia, validez y último error. Matter y
+MQTT consumen ese snapshot sin acceder al bus I²C ni al driver BME680.
 
 ---
 
 # Matter
 
-El dispositivo se modela como un único Matter Node. La build Matter estándar de
-validación expone solo temperatura copiando el shape del producto
-`temperature_sensor` de Espressif en `esp-lowcode-matter`: un endpoint
-`Temperature Sensor` version 1 con el cluster `TemperatureMeasurement`.
-Desde ese caso base se agregan humedad y presión de forma incremental.
+El dispositivo se modela como un único Matter Node. La build estándar de
+validación está definida en `firmware/sdkconfig.matter-standard.defaults` y usa
+un endpoint ambiental con temperatura, humedad y presión. Las variantes y los
+clusters se detallan en [`docs/matter.md`](docs/matter.md).
 
 El endpoint `PowerSource` es opcional y se mantiene apagado en la build Matter
 estándar, porque el prototipo actual está alimentado por USB.
@@ -173,10 +172,10 @@ estándar, porque el prototipo actual está alimentado por USB.
 ```text
 Matter Node
 │
-├── Endpoint 1
-│   └── Temperature Sensor
-└── Endpoint 2, opcional
-    └── Power Source
+└── Endpoint ambiental
+    ├── TemperatureMeasurement
+    ├── RelativeHumidityMeasurement
+    └── PressureMeasurement
 ```
 
 Los valores del BME680 serán convertidos a las unidades y escalas requeridas por los clusters Matter correspondientes.
@@ -185,17 +184,17 @@ El firmware no debe asumir que los valores internos del BME680 pueden copiarse d
 
 ---
 
-# Sensor sampling
+# Muestreo del sensor
 
 El BME680 será muestreado periódicamente.
 
 Como configuración inicial se considera un intervalo de aproximadamente:
 
 ```text
-2-5 segundos
+3 segundos
 ```
 
-El intervalo inicial está centralizado en `app_config.h` y actualmente es de 3 segundos.
+El intervalo está centralizado en `firmware/main/include/app_config.h`.
 
 La frecuencia de lectura del sensor no necesariamente será igual a la frecuencia de publicación MQTT o de reporting Matter.
 
@@ -204,13 +203,13 @@ Ejemplo:
 ```text
 BME680
    │
-   │ cada 2 s
+   │ cada 3 s
    ▼
-Sensor data
+ Datos del sensor
    │
-   ├──► Matter reporting
+   ├──► Reporting Matter
    │
-   └──► MQTT telemetry
+   └──► Telemetría MQTT
 ```
 
 La estrategia definitiva de reporting será definida durante el desarrollo. Matter
@@ -223,17 +222,9 @@ del sensor.
 
 MQTT se utilizará como canal de telemetría para la infraestructura local.
 
-Se pretende publicar las mediciones de forma estructurada, por ejemplo:
-
-```json
-{
-  "temperature": 23.47,
-  "humidity": 54.21,
-  "pressure": 1008.32
-}
-```
-
-El formato definitivo de los topics y payloads se definirá durante la implementación.
+El contrato actual está documentado en [`docs/mqtt.md`](docs/mqtt.md): el topic
+por defecto es `smart-environment-sensor/bme680/state` y el payload usa los
+campos `temperature_c`, `humidity_percent` y `pressure_hpa`.
 
 Arquitectura:
 
@@ -301,15 +292,15 @@ Ejemplo de dashboard:
 
 ---
 
-# Reliability
+# Fiabilidad
 
-El firmware deberá contemplar:
+La implementación actual contempla:
 
 * Reconexión automática de Wi-Fi.
 * Reconexión automática de MQTT.
 * Funcionamiento independiente de Matter y MQTT.
-* Recuperación ante errores de comunicación I²C.
-* Watchdog.
+* Detección y registro de errores de comunicación I²C.
+* Diagnósticos periódicos de heap y stack.
 * Manejo de errores del BME680.
 * Inicialización segura del sensor.
 * Persistencia de configuración mediante NVS cuando sea necesario.
@@ -341,7 +332,7 @@ La implementación OTA deberá priorizar mecanismos seguros y recuperación ante
 
 ---
 
-# Air Quality / VOC
+# Calidad del aire / VOC
 
 El BME680 incorpora un sensor de gas.
 
@@ -357,7 +348,7 @@ Una posible futura representación Matter será mediante un dispositivo/cluster 
 
 ---
 
-# Project Structure
+# Estructura del proyecto
 
 La estructura actual incluye la base ESP-IDF, el driver BME680 y una capa de servicio de sensor:
 
@@ -378,6 +369,7 @@ smartEnvironmentSensor/
 │   │   ├── config_portal.cpp
 │   │   ├── matter_config.cpp
 │   │   ├── matter_device.cpp
+│   │   ├── memory_diagnostics.cpp
 │   │   ├── mqtt_config.cpp
 │   │   ├── mqtt_telemetry.cpp
 │   │   ├── sensor_service.cpp
@@ -400,7 +392,8 @@ smartEnvironmentSensor/
 │   ├── dependencies.lock
 │   ├── partitions.csv
 │   ├── sdkconfig.defaults
-│   └── sdkconfig.matter.defaults
+│   ├── sdkconfig.matter.defaults
+│   └── sdkconfig.matter-standard.defaults
 │
 ├── hardware/
 │   └── README.md
@@ -418,13 +411,13 @@ smartEnvironmentSensor/
 ```
 
 El sensor BME680, la capa de servicio, Wi-Fi provisioning, MQTT, el portal web
-de configuración y el scaffold Matter ya están implementados de forma
-incremental. Matter se habilita por configuración local y consume la misma capa
-de servicio para mantener las interfaces de red desacopladas del acceso I²C.
+de configuración y Matter están implementados de forma incremental. El driver
+Bosch está aislado en `components/bme68x`; la aplicación lo adapta mediante
+`Bme680Sensor` y `sensor_service`.
 
 ---
 
-# Development Environment
+# Entorno de desarrollo
 
 El firmware puede desarrollarse desde:
 
@@ -449,7 +442,7 @@ VS Code puede utilizarse como IDE.
 
 ---
 
-# Build
+# Compilación
 
 Una vez instalado ESP-IDF:
 
@@ -535,9 +528,9 @@ idf.py flash monitor
 
 ---
 
-# Development Roadmap
+# Hoja de ruta de desarrollo
 
-## Phase 0 — ESP-IDF Base
+## Fase 0 — Base ESP-IDF
 
 * [x] Crear estructura mínima ESP-IDF.
 * [x] Configurar target inicial `esp32c3` en `sdkconfig.defaults`.
@@ -545,7 +538,7 @@ idf.py flash monitor
 * [x] Documentar hardware inicial en `docs/hardware.md`.
 * [x] Compilar con `idf.py build` en un entorno con ESP-IDF instalado.
 
-## Phase 1 — Hardware
+## Fase 1 — Hardware
 
 * [x] Confirmar placa objetivo inicial: ESP32-C3 SuperMini.
 * [x] Confirmar módulo BME680 con pines VCC/GND/SCL/SDA/SDO/CS.
@@ -555,7 +548,7 @@ idf.py flash monitor
 * [x] Agregar prueba inicial de comunicación I²C con lectura de chip ID.
 * [x] Probar comunicación I²C en hardware.
 
-## Phase 2 — BME680
+## Fase 2 — BME680
 
 * [x] Integrar driver BME680 usando Bosch BME68x Sensor API.
 * [x] Leer temperatura.
@@ -564,26 +557,25 @@ idf.py flash monitor
 * [x] Mover muestreo a `sensor_task`.
 * [x] Exponer última muestra mediante snapshot protegido por mutex.
 * [ ] Leer resistencia del gas.
-* [ ] Implementar manejo de errores.
+* [x] Implementar manejo básico de errores de inicialización y lectura.
 * [x] Implementar configuración inicial de oversampling/filter para T/P/H.
 * [ ] Implementar configuración de heater para gas.
 
-## Phase 3 — Matter
+## Fase 3 — Matter
 
 * [x] Crear scaffold ESP-Matter opcional.
 * [x] Documentar estrategia de red custom.
-* [x] Preparar Temperature Sensor.
-* [x] Preparar Humidity Sensor.
-* [x] Preparar Pressure Sensor.
+* [x] Implementar Temperature Sensor.
+* [x] Implementar Humidity Sensor.
+* [x] Implementar Pressure Sensor.
 * [x] Resolver y validar build con componente `espressif/esp_matter`.
 * [x] Agregar defaults locales para build Matter.
 * [x] Agregar control runtime de Matter en el portal web local.
-* [x] Habilitar Matter en `sdkconfig` local.
 * [ ] Realizar commissioning.
 * [ ] Verificar funcionamiento con Matter Controller.
 * [ ] Implementar reporting adecuado.
 
-## Phase 4 — MQTT
+## Fase 4 — MQTT
 
 * [x] Implementar cliente MQTT.
 * [x] Definir topics preliminares.
@@ -592,7 +584,7 @@ idf.py flash monitor
 * [x] Integrar con broker existente.
 * [x] Verificar recepción desde Raspberry Pi.
 
-## Phase 5 — Integración con la infraestructura
+## Fase 5 — Integración con la infraestructura
 
 * [x] Publicar telemetría ambiental por MQTT.
 * [x] Definir y documentar el contrato MQTT.
@@ -602,18 +594,18 @@ La ingesta, el almacenamiento, el provisioning y los dashboards se mantienen
 en el repositorio
 [`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure).
 
-## Phase 6 — Reliability
+## Fase 6 — Fiabilidad
 
 * [x] Wi-Fi auto reconnect básico.
 * [x] BLE Wi-Fi provisioning básico.
-* [ ] MQTT auto reconnect.
+* [x] MQTT reconexión mediante ESP-MQTT.
 * [ ] I²C recovery.
-* [ ] Watchdog.
+* [x] Diagnósticos periódicos de memoria y stack.
 * [x] NVS para credenciales Wi-Fi.
-* [ ] Manejo de errores.
+* [x] Manejo básico de errores de sensor, Wi-Fi, MQTT y Matter.
 * [ ] Pruebas prolongadas.
 
-## Phase 7 — Advanced
+## Fase 7 — Avanzado
 
 * [ ] OTA.
 * [ ] Air Quality.
@@ -625,7 +617,7 @@ en el repositorio
 
 ---
 
-# Design Principles
+# Principios de diseño
 
 El proyecto seguirá estos principios:
 
@@ -642,9 +634,9 @@ El proyecto seguirá estos principios:
 
 ---
 
-# Status
+# Estado
 
-🚧 **Early Development**
+🚧 **Early Development — integración Matter en validación**
 
 El proyecto se encuentra en etapa de diseño e implementación inicial.
 
@@ -657,8 +649,9 @@ Actualmente están definidos:
 * MQTT como canal de telemetría.
 
 La base ESP-IDF, lectura BME680, Wi-Fi provisioning BLE, portal local de
-configuración, MQTT y el scaffold Matter ya existen. InfluxDB, Telegraf y Grafana
-son responsabilidad de
+configuración, MQTT y la integración Matter ya existen. El commissioning y la
+validación con un Matter Controller aún están pendientes. InfluxDB, Telegraf y
+Grafana son responsabilidad de
 [`smartInfrastructure`](https://github.com/tucho235/smartInfrastructure).
 La validación completa de ESP-Matter y reporting con SmartThings sigue en ajuste
 por etapas.

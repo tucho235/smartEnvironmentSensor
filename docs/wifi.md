@@ -1,54 +1,56 @@
 # Wi-Fi
 
-The firmware includes a non-blocking Wi-Fi station layer with BLE provisioning.
+El firmware incluye una capa no bloqueante de estación Wi-Fi con provisioning BLE.
 
-Wi-Fi credentials are not compiled into the firmware. They are sent over BLE
-when the device has no Wi-Fi credentials stored in NVS.
+Las credenciales Wi-Fi no se compilan dentro del firmware. Se envían mediante
+BLE cuando el dispositivo no tiene credenciales Wi-Fi almacenadas en NVS.
 
-## First Provisioning
+## Primer provisioning
 
-Flash the firmware and keep the serial monitor open:
+Flashear el firmware y mantener abierto el monitor serie:
 
 ```bash
 cd firmware
 idf.py -p /dev/cu.usbmodem112301 flash monitor
 ```
 
-On first boot, or after Wi-Fi credentials are erased, the MQTT-only firmware
-starts BLE provisioning.
+En el primer arranque, o después de borrar las credenciales Wi-Fi, una build sin
+Matter activo en tiempo de ejecución inicia el provisioning BLE.
 
-When the Matter runtime service is enabled, initial Wi-Fi setup is handled by
-Matter Network Commissioning instead. Use the Matter controller app, for example
-SmartThings, to send the Wi-Fi network during Matter commissioning. The project
-BLE provisioning flow is kept as a fallback for builds or runtime configurations
-where Matter is disabled.
+Cuando el servicio Matter está activo en tiempo de ejecución, la configuración
+Wi-Fi inicial la gestiona Matter Network Commissioning. Utilizar la aplicación de
+un controlador Matter, por ejemplo SmartThings, para enviar la red Wi-Fi durante
+el commissioning Matter. El flujo de provisioning BLE del proyecto queda como
+alternativa para builds o configuraciones de tiempo de ejecución donde Matter
+está desactivado.
 
-In the Matter runtime path, the local Wi-Fi layer starts station mode but does
-not initiate connection or reconnection attempts. It keeps the ESP-IDF network
-stack and event observers available while ESP-Matter controls access point
-association.
+En el flujo Matter, la capa Wi-Fi local inicia el modo estación, pero no inicia
+conexiones ni reconexiones. Mantiene disponible la pila de red de ESP-IDF y los
+observadores de eventos mientras ESP-Matter controla la asociación con el punto
+de acceso.
 
-Expected log:
+Para el flujo de provisioning BLE, el registro esperado es:
 
 ```text
 BLE Wi-Fi provisioning started
 BLE provisioning device name: SMENV_...
 ```
 
-Use the Espressif BLE provisioning app or a compatible provisioning client.
-Search for the BLE device name printed in the serial monitor and send the local
-Wi-Fi SSID/password from the app.
+Utilizar la aplicación de provisioning BLE de Espressif o un cliente compatible.
+Buscar el nombre del dispositivo BLE mostrado en el monitor serie y enviar desde
+la aplicación el SSID y la contraseña Wi-Fi local.
 
-The firmware also exposes MQTT configuration endpoints during BLE provisioning:
+Cuando la telemetría MQTT está incluida en la build, el firmware también expone
+endpoints de configuración MQTT durante el provisioning BLE:
 
 ```text
 mqtt-config
 custom-data
 ```
 
-See `docs/mqtt.md` for the JSON payload.
+Consultar [`docs/mqtt.md`](mqtt.md) para ver el payload JSON.
 
-Expected successful provisioning log:
+Registro esperado tras un provisioning exitoso:
 
 ```text
 Received Wi-Fi credentials over BLE
@@ -56,22 +58,22 @@ Wi-Fi provisioning successful
 Wi-Fi connected, IP=...
 ```
 
-After Wi-Fi connects, the firmware starts the local configuration portal:
+Después de conectar Wi-Fi, el firmware inicia el portal local de configuración:
 
 ```text
 Configuration portal started on http://<device-ip>/
 ```
 
-Open the printed IP in a browser to configure MQTT and Matter runtime settings
-without recompiling the firmware.
+Abrir la IP mostrada en un navegador para configurar MQTT y los ajustes Matter
+de tiempo de ejecución sin recompilar el firmware.
 
-The credentials are stored by ESP-IDF Wi-Fi in NVS. Future boots reuse the saved
-credentials automatically.
+ESP-IDF Wi-Fi almacena las credenciales en NVS. Los siguientes arranques las
+reutilizan automáticamente.
 
-## Re-Provisioning
+## Re-provisioning
 
-There is no physical reprovisioning button wired yet. For now, erase flash to
-clear saved credentials and return to BLE provisioning:
+Todavía no hay un botón físico de reprovisioning conectado. Por ahora, borrar la
+flash para eliminar las credenciales guardadas y volver al provisioning BLE:
 
 ```bash
 cd firmware
@@ -79,42 +81,45 @@ idf.py -p /dev/cu.usbmodem112301 erase-flash
 idf.py -p /dev/cu.usbmodem112301 flash monitor
 ```
 
-Future hardware work should define a safe button GPIO or another explicit reset
-condition for clearing Wi-Fi credentials without reflashing.
+El trabajo futuro de hardware deberá definir un GPIO seguro para un botón u otra
+condición explícita que permita borrar las credenciales sin reflashear.
 
-## Optional Proof Of Possession
+## Proof of possession opcional
 
-BLE provisioning uses ESP-IDF protocomm security 1. During initial development
-the proof of possession is empty by default.
+El provisioning BLE utiliza protocomm security 1 de ESP-IDF. Durante el
+desarrollo inicial, el proof of possession está vacío por defecto.
 
-To set a local proof of possession:
+Para establecer un proof of possession local:
 
 ```bash
 cd firmware
 idf.py menuconfig
 ```
 
-Then open:
+Luego abrir:
 
 ```text
 Smart Environment Sensor Configuration
 ```
 
-Set:
+Establecer:
 
 ```text
 BLE provisioning proof of possession
 ```
 
-This value is written to local `firmware/sdkconfig`, which is ignored by Git. Do
-not add proofs of possession, SSIDs, or passwords to `sdkconfig.defaults`.
+Este valor se escribe en el archivo local `firmware/sdkconfig`, ignorado por
+Git. No agregar proofs of possession, SSID ni contraseñas a
+`sdkconfig.defaults`.
 
-## Runtime Behavior
+## Comportamiento en tiempo de ejecución
 
-If credentials exist, the firmware starts normal Wi-Fi station mode.
+Si existen credenciales, el firmware inicia el modo estación Wi-Fi normal. En el
+flujo Matter, ESP-Matter controla las conexiones y reconexiones; en otro caso,
+la capa Wi-Fi local se reconecta cinco segundos después de una desconexión.
 
-If Wi-Fi disconnects, the firmware schedules reconnect attempts without blocking
-sensor sampling.
+Si Wi-Fi se desconecta, el firmware programa intentos de reconexión sin bloquear
+el muestreo del sensor.
 
-If credentials do not exist, BLE provisioning starts and the sensor task keeps
-running while the device waits for Wi-Fi configuration.
+Si no existen credenciales, inicia el provisioning BLE y la tarea del sensor
+continúa ejecutándose mientras el dispositivo espera la configuración Wi-Fi.
