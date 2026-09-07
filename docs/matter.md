@@ -3,22 +3,25 @@
 Matter es una funcionalidad opcional del firmware y está desactivada por
 defecto en la configuración normal.
 
-El código admite varios modelos de endpoints. Los valores predeterminados de
-validación estándar usan el modelo ambiental completo en un endpoint:
-temperatura, humedad relativa y presión. También hay un modo de solo temperatura
-para probar la compatibilidad con controladores.
+El código admite varios modelos de endpoints. El modelo estándar deriva sus
+mediciones del sensor seleccionado:
 
 ```text
 Matter Node
-└── Environmental endpoint (default)
+└── Environmental endpoint (BME680)
     ├── TemperatureMeasurement
     ├── RelativeHumidityMeasurement
     └── PressureMeasurement
+
+Matter Node
+└── Environmental endpoint (SHT30)
+    ├── TemperatureMeasurement
+    └── RelativeHumidityMeasurement
 ```
 
 La implementación está aislada en `matter_device.cpp/.h` y consume los datos del
 sensor únicamente mediante `sensor_service_get_latest()`. No debe acceder
-directamente al driver BME680 ni al bus I²C, y debe mantenerse independiente de
+directamente al driver seleccionado ni al bus I²C, y debe mantenerse independiente de
 MQTT.
 
 ## Opción de compilación
@@ -37,8 +40,8 @@ selecciona mediante opciones mutuamente excluyentes:
 ```text
 APP_MATTER_THERMOSTAT_ONLY              un endpoint Thermostat
 APP_MATTER_TEMPERATURE_ONLY             un endpoint Temperature Sensor
-APP_MATTER_SEPARATE_SENSOR_ENDPOINTS    un endpoint por medición
-todo desactivado                         un endpoint con los tres clusters
+APP_MATTER_SEPARATE_SENSOR_ENDPOINTS    un endpoint por medición disponible
+todo desactivado                         un endpoint con los clusters del sensor
 ```
 
 `APP_MATTER_TEMPERATURE_ONLY` crea el endpoint 1 como un `Temperature Sensor`
@@ -60,6 +63,17 @@ firmware/sdkconfig.matter-standard.defaults
 
 Esta variante habilita Matter, MQTT y el portal local de configuración,
 selecciona el modelo ambiental completo y desactiva `PowerSource`.
+
+Para SHT30 se agrega `firmware/sdkconfig.sht30.defaults`, que solo selecciona el
+driver y su dirección para mantener independiente la elección del sensor. Se
+combina con la variante Matter estándar:
+
+```bash
+idf.py -B build-sht30 \
+  -DSDKCONFIG=sdkconfig.sht30 \
+  -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.matter-standard.defaults;sdkconfig.sht30.defaults" \
+  build
+```
 
 Compilar la variante Matter sin modificar el `sdkconfig` local normal:
 
@@ -86,7 +100,7 @@ firmware solo crea en tiempo de ejecución los endpoints siguientes:
 Endpoint predeterminado:
   device type de Temperature Sensor + TemperatureMeasurement
   device type de Humidity Sensor + RelativeHumidityMeasurement
-  device type de Pressure Sensor + PressureMeasurement
+  device type de Pressure Sensor + PressureMeasurement (solo BME680)
 Endpoint opcional:
   device type de Power Source + PowerSource
 ```
@@ -144,6 +158,14 @@ Manual code:    34970112332
 Estos valores solo sirven para desarrollo local. Están compilados en la build
 Matter actual y deben reemplazarse antes de utilizar un firmware de producción.
 
+Dos ESP32 flasheadas con estos valores pueden incorporarse al mismo fabric de
+SmartThings como nodos independientes; el controlador asigna identidad
+operacional a cada comisión. Para evitar ambigüedad durante el descubrimiento
+BLE, emparejar una placa por vez. La provisión de passcodes y discriminators
+únicos por unidad queda separada de la selección BME680/SHT30 y requiere usar el
+proveedor de datos de fábrica de la versión instalada de ESP-Matter; no se
+generan credenciales pseudoaleatorias durante el arranque.
+
 ## Portal en tiempo de ejecución
 
 Después de conectar Wi-Fi, el portal local de configuración expone una pestaña
@@ -194,9 +216,9 @@ Para reproducir la validación:
 2. Confirmar que ESP-Matter se resuelve mediante IDF Component Manager.
 3. Mantener habilitado Matter Network Commissioning estándar.
 4. Compilar para `esp32c3`.
-5. Flashear y confirmar el funcionamiento del BME680 y Wi-Fi.
+5. Flashear y confirmar el funcionamiento del sensor seleccionado y Wi-Fi.
 6. Verificar el descubrimiento de endpoints y el reporting de temperatura,
-   humedad y presión.
+   humedad y, para BME680, presión.
 
 La prueba con un controlador Matter debe confirmar el modelo de endpoints
 seleccionado y sus atributos de medición correspondientes. Los valores Matter

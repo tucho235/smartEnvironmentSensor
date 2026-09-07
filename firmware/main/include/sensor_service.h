@@ -6,7 +6,7 @@
 #include "sensor_sample.h"
 
 struct SensorSnapshot {
-    Bme680Sample sample;
+    SensorSample sample;
     int64_t timestamp_ms;
     uint32_t sequence;
     esp_err_t last_error;

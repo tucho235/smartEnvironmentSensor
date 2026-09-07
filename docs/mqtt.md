@@ -7,7 +7,7 @@ La ESP32-C3 publica telemetría en un broker MQTT local, previsto para ejecutars
 en la Raspberry Pi. El ESP32 no debe conectarse directamente a InfluxDB.
 
 MQTT es opcional en tiempo de ejecución. Si no se configura una URI de broker,
-el firmware continúa muestreando el BME680 y omite el arranque de MQTT.
+el firmware continúa muestreando el sensor seleccionado y omite el arranque de MQTT.
 
 El firmware almacena la configuración MQTT en NVS, dentro del namespace de la
 aplicación. Un flasheo normal del firmware no borra esta configuración.
@@ -107,7 +107,7 @@ Ambos endpoints aceptan el mismo payload JSON:
   "broker_uri": "mqtt://192.168.3.10:1883",
   "username": "esp32",
   "password": "YOUR_PASSWORD",
-  "topic": "smart-environment-sensor/bme680/state",
+  "topic": "smart-environment-sensor/indoor/state",
   "publish_interval_ms": 10000
 }
 ```
@@ -127,16 +127,33 @@ configuración desde teléfono u ordenador, utilizar el portal web.
 ## Topic
 
 ```text
-smart-environment-sensor/bme680/state
+smart-environment-sensor/bme680/state  (valor inicial BME680)
+smart-environment-sensor/sht30/state   (valor inicial SHT30)
 ```
 
+El topic es editable en la pestaña MQTT del portal y se persiste en NVS. Para
+dos dispositivos se recomienda identificar la ubicación, por ejemplo
+`smart-environment-sensor/indoor/state` y
+`smart-environment-sensor/outdoor/state`.
+
 ## Payload
+
+BME680:
 
 ```json
 {
   "temperature_c": 24.32,
   "humidity_percent": 50.44,
   "pressure_hpa": 1011.62
+}
+```
+
+SHT30:
+
+```json
+{
+  "temperature_c": 24.32,
+  "humidity_percent": 50.44
 }
 ```
 
@@ -151,7 +168,8 @@ pressure_hpa     hectopascals
 ## Comportamiento de publicación
 
 MQTT publica el snapshot más reciente de `sensor_service`. No debe acceder
-directamente al driver BME680 ni al bus I²C.
+directamente al driver seleccionado ni al bus I²C. La variante SHT30 omite
+`pressure_hpa`; no publica un cero ni un valor simulado.
 
 El intervalo inicial de publicación MQTT es de 10 segundos, independiente del
 intervalo de muestreo del sensor.

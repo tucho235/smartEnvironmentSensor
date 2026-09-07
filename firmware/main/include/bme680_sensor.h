@@ -10,7 +10,7 @@
 class Bme680Sensor {
 public:
     esp_err_t init();
-    esp_err_t read_sample(Bme680Sample &sample);
+    esp_err_t read_sample(SensorSample &sample);
 
 private:
     static int8_t i2c_read(uint8_t reg_addr, uint8_t *reg_data, uint32_t len, void *intf_ptr);

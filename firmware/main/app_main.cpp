@@ -87,7 +87,12 @@ extern "C" void app_main(void)
 {
     ESP_LOGI(TAG, "Smart Environment Sensor firmware starting");
     ESP_LOGI(TAG, "Target board: ESP32-C3 SuperMini");
-    ESP_LOGI(TAG, "Planned BME680 I2C wiring: SDA GPIO4, SCL GPIO5, address 0x76");
+#if CONFIG_APP_SENSOR_BME680
+    ESP_LOGI(TAG, "BME680 I2C wiring: SDA GPIO4, SCL GPIO5, address 0x76");
+#else
+    ESP_LOGI(TAG, "SHT30 I2C wiring: SDA GPIO4, SCL GPIO5, address 0x%02X",
+             CONFIG_APP_SHT30_I2C_ADDRESS);
+#endif
     memory_diagnostics_log(TAG, "Boot");
 
     esp_err_t err = initialize_nvs();

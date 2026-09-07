@@ -1,6 +1,8 @@
 # Smart Environment Sensor
 
-Firmware para un **ESP32-C3** conectado a un sensor ambiental **Bosch BME680**, con soporte para **Matter** y telemetría mediante **MQTT** hacia un broker local.
+Firmware para un **ESP32-C3** conectado a un sensor ambiental **Bosch BME680**
+o **Sensirion SHT30**, con soporte para **Matter** y telemetría mediante **MQTT**
+hacia un broker local.
 
 El firmware ya integra la lectura periódica del sensor, provisioning Wi-Fi por BLE,
 un portal HTTP local, telemetría MQTT y una integración Matter opcional. Matter y
@@ -13,7 +15,7 @@ Matter.
 
 ### Sensor
 
-El BME680 proporciona:
+La build selecciona un único sensor I²C. El BME680 proporciona:
 
 * 🌡️ Temperatura
 * 💧 Humedad relativa
@@ -28,14 +30,18 @@ Inicialmente se implementarán:
 
 La medición de gas y calidad del aire quedará preparada para una futura etapa.
 
+El SHT30 proporciona temperatura y humedad relativa. Esta variante no inventa
+ni publica valores de presión.
+
 ### Matter
 
 Matter se compila opcionalmente y se habilita mediante `APP_ENABLE_MATTER`.
-El modelo depende de la configuración: por defecto hay un endpoint ambiental con
-temperatura, humedad y presión; `APP_MATTER_SEPARATE_SENSOR_ENDPOINTS` crea un
-endpoint por medición; `APP_MATTER_TEMPERATURE_ONLY` crea un `Temperature Sensor`
-y `APP_MATTER_THERMOSTAT_ONLY` crea un `Thermostat` para validación. El endpoint
-`PowerSource` es opcional y está desactivado en la build estándar.
+El modelo estándar depende del sensor: BME680 crea temperatura, humedad y
+presión; SHT30 crea temperatura y humedad. `APP_MATTER_SEPARATE_SENSOR_ENDPOINTS`
+crea un endpoint por medición disponible; `APP_MATTER_TEMPERATURE_ONLY` y
+`APP_MATTER_THERMOSTAT_ONLY` siguen disponibles como variantes explícitas de
+validación. El endpoint `PowerSource` es opcional y está desactivado en la build
+estándar.
 
 ### Telemetría
 
@@ -78,9 +84,9 @@ posterior son responsabilidad de `smartInfrastructure`.
 
 La placa objetivo inicial es un **ESP32-C3 SuperMini**. Si más adelante se usa una variante distinta de ESP32-C3, se deberá revisar especialmente el pinout, los pines de arranque y la disponibilidad de GPIO.
 
-## Sensor
+## Sensores
 
-* Bosch BME680
+* Bosch BME680 o Sensirion SHT30, seleccionado por build
 * Comunicación I²C
 
 Conexión prevista:
@@ -97,6 +103,10 @@ CS        ────► 3V3   (modo I²C)
 ```
 
 Se evitan GPIO8/GPIO9 para I²C en esta placa porque pueden interferir con funciones de arranque o BOOT según la variante del módulo. La dirección inicial prevista del BME680 es `0x76`.
+
+El SHT30 usa el mismo cableado de alimentación, SDA y SCL. Su dirección
+predeterminada es `0x44` (`ADDR` bajo) y puede configurarse como `0x45` cuando
+`ADDR` está conectado a 3V3.
 
 ---
 
@@ -152,7 +162,7 @@ La aplicación se dividirá conceptualmente en varias capas:
 
 La lectura del sensor y la comunicación Matter/MQTT deben mantenerse desacopladas.
 
-Actualmente, el muestreo del BME680 corre en una tarea FreeRTOS dedicada
+Actualmente, el muestreo del sensor seleccionado corre en una tarea FreeRTOS dedicada
 (`sensor_task`) cada 3 segundos. La última muestra se mantiene en un snapshot
 protegido por mutex, con timestamp, secuencia, validez y último error. Matter y
 MQTT consumen ese snapshot sin acceder al bus I²C ni al driver BME680.
@@ -222,9 +232,10 @@ del sensor.
 
 MQTT se utilizará como canal de telemetría para la infraestructura local.
 
-El contrato actual está documentado en [`docs/mqtt.md`](docs/mqtt.md): el topic
-por defecto es `smart-environment-sensor/bme680/state` y el payload usa los
-campos `temperature_c`, `humidity_percent` y `pressure_hpa`.
+El contrato actual está documentado en [`docs/mqtt.md`](docs/mqtt.md). El topic
+inicial depende del sensor y puede cambiarse por dispositivo desde el portal
+HTML. El payload siempre incluye `temperature_c` y `humidity_percent`; la build
+BME680 agrega `pressure_hpa`.
 
 Arquitectura:
 
@@ -373,6 +384,7 @@ smartEnvironmentSensor/
 │   │   ├── mqtt_config.cpp
 │   │   ├── mqtt_telemetry.cpp
 │   │   ├── sensor_service.cpp
+│   │   ├── sht30_sensor.cpp
 │   │   ├── wifi_station.cpp
 │   │   ├── include/
 │   │   │   ├── app_config.h
@@ -384,6 +396,8 @@ smartEnvironmentSensor/
 │   │   │   ├── mqtt_telemetry.h
 │   │   │   ├── sensor_sample.h
 │   │   │   ├── sensor_service.h
+│   │   │   ├── selected_sensor.h
+│   │   │   ├── sht30_sensor.h
 │   │   │   └── wifi_station.h
 │   │   ├── CMakeLists.txt
 │   │   ├── Kconfig.projbuild
@@ -393,7 +407,8 @@ smartEnvironmentSensor/
 │   ├── partitions.csv
 │   ├── sdkconfig.defaults
 │   ├── sdkconfig.matter.defaults
-│   └── sdkconfig.matter-standard.defaults
+│   ├── sdkconfig.matter-standard.defaults
+│   └── sdkconfig.sht30.defaults
 │
 ├── hardware/
 │   └── README.md
@@ -402,6 +417,7 @@ smartEnvironmentSensor/
 │   ├── hardware.md
 │   ├── matter.md
 │   ├── mqtt.md
+│   ├── sht30-support-sdd.md
 │   └── wifi.md
 │
 ├── .gitignore
@@ -410,10 +426,12 @@ smartEnvironmentSensor/
 └── LICENSE
 ```
 
-El sensor BME680, la capa de servicio, Wi-Fi provisioning, MQTT, el portal web
-de configuración y Matter están implementados de forma incremental. El driver
-Bosch está aislado en `components/bme68x`; la aplicación lo adapta mediante
-`Bme680Sensor` y `sensor_service`.
+Los drivers BME680 y SHT30 están aislados detrás de `sensor_service`. Matter y
+MQTT consumen snapshots genéricos y no acceden directamente al bus I²C.
+
+El diseño, el estado de implementación y el plan de validación de la variante
+SHT30 están documentados en
+[`docs/sht30-support-sdd.md`](docs/sht30-support-sdd.md).
 
 ---
 
@@ -456,6 +474,19 @@ Compilar:
 ```bash
 idf.py build
 ```
+
+La selección predeterminada es BME680. Para compilar la variante SHT30 con
+Matter, MQTT y portal sin modificar el `sdkconfig` normal:
+
+```bash
+idf.py -B build-sht30 \
+  -DSDKCONFIG=sdkconfig.sht30 \
+  -DSDKCONFIG_DEFAULTS="sdkconfig.defaults;sdkconfig.matter-standard.defaults;sdkconfig.sht30.defaults" \
+  build
+```
+
+La dirección SHT30 predeterminada es `0x44`; puede cambiarse a `0x45` mediante
+`APP_SHT30_I2C_ADDRESS`.
 
 El firmware no necesita SSID/password al compilar. Si no hay credenciales Wi-Fi
 guardadas en NVS, el ESP32-C3 inicia provisioning BLE y permite configurarlas

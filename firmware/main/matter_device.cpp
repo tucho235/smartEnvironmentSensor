@@ -16,7 +16,9 @@
 #include "memory_diagnostics.h"
 #include "sensor_service.h"
 
+#if CONFIG_APP_SENSOR_BME680
 #include <app/clusters/pressure-measurement-server/PressureMeasurementCluster.h>
+#endif
 #include <app/clusters/relative-humidity-measurement-server/RelativeHumidityMeasurementCluster.h>
 #include <app/clusters/temperature-measurement-server/TemperatureMeasurementCluster.h>
 #include <app/server/CommissioningWindowManager.h>
@@ -65,10 +67,12 @@ uint16_t humidity_percent_to_matter(float humidity_percent)
     return clamp_u16(static_cast<int32_t>(std::lround(humidity_percent * 100.0f)));
 }
 
+#if CONFIG_APP_SENSOR_BME680
 int16_t pressure_hpa_to_matter(float pressure_hpa)
 {
     return clamp_i16(static_cast<int32_t>(std::lround(pressure_hpa)));
 }
+#endif
 #endif
 
 using namespace esp_matter;
@@ -79,7 +83,9 @@ using namespace chip::app::Clusters;
 uint16_t s_temperature_endpoint_id = 0;
 #if !CONFIG_APP_MATTER_TEMPERATURE_ONLY && !CONFIG_APP_MATTER_THERMOSTAT_ONLY
 uint16_t s_humidity_endpoint_id = 0;
+#if CONFIG_APP_SENSOR_BME680
 uint16_t s_pressure_endpoint_id = 0;
+#endif
 #endif
 #if CONFIG_APP_MATTER_ENABLE_POWER_SOURCE
 uint16_t s_power_source_endpoint_id = 0;
@@ -247,11 +253,13 @@ void matter_update_task(void *)
                 "RelativeHumidityMeasurement",
                 chip::app::DataModel::Nullable<uint16_t>(humidity_percent_to_matter(snapshot.sample.humidity_percent)));
 
+#if CONFIG_APP_SENSOR_BME680
             update_code_driven_measurement<chip::app::Clusters::PressureMeasurementCluster>(
                 s_pressure_endpoint_id,
                 PressureMeasurement::Id,
                 "PressureMeasurement",
                 chip::app::DataModel::Nullable<int16_t>(pressure_hpa_to_matter(snapshot.sample.pressure_hpa)));
+#endif
 #endif
 #endif
 
@@ -343,7 +351,11 @@ esp_err_t create_sensor_endpoints(node_t *node)
 #else
     temperature_sensor::config_t temperature_config;
     temperature_config.temperature_measurement.min_measured_value = nullable<int16_t>(-4000);
+#if CONFIG_APP_SENSOR_BME680
     temperature_config.temperature_measurement.max_measured_value = nullable<int16_t>(8500);
+#else
+    temperature_config.temperature_measurement.max_measured_value = nullable<int16_t>(12500);
+#endif
     if (has_snapshot) {
         temperature_config.temperature_measurement.measured_value =
             nullable<int16_t>(temperature_c_to_matter(snapshot.sample.temperature_c));
@@ -406,6 +418,7 @@ esp_err_t create_sensor_endpoints(node_t *node)
             nullable<uint16_t>(humidity_percent_to_matter(snapshot.sample.humidity_percent));
     }
 
+#if CONFIG_APP_SENSOR_BME680
     pressure_sensor::config_t pressure_config;
     pressure_config.pressure_measurement.min_measured_value = nullable<int16_t>(300);
     pressure_config.pressure_measurement.max_measured_value = nullable<int16_t>(1100);
@@ -413,6 +426,7 @@ esp_err_t create_sensor_endpoints(node_t *node)
         pressure_config.pressure_measurement.measured_value =
             nullable<int16_t>(pressure_hpa_to_matter(snapshot.sample.pressure_hpa));
     }
+#endif
 
 #if CONFIG_APP_MATTER_SEPARATE_SENSOR_ENDPOINTS
     endpoint_t *temperature_endpoint = temperature_sensor::create(node, &temperature_config, ENDPOINT_FLAG_NONE, nullptr);
@@ -429,18 +443,27 @@ esp_err_t create_sensor_endpoints(node_t *node)
     }
     s_humidity_endpoint_id = endpoint::get_id(humidity_endpoint);
 
+#if CONFIG_APP_SENSOR_BME680
     endpoint_t *pressure_endpoint = pressure_sensor::create(node, &pressure_config, ENDPOINT_FLAG_NONE, nullptr);
     if (pressure_endpoint == nullptr) {
         ESP_LOGE(TAG, "Failed to create Matter pressure endpoint");
         return ESP_FAIL;
     }
     s_pressure_endpoint_id = endpoint::get_id(pressure_endpoint);
+#endif
 
+#if CONFIG_APP_SENSOR_BME680
     ESP_LOGI(TAG,
              "Matter sensor endpoints created: temperature=%u humidity=%u pressure=%u",
              s_temperature_endpoint_id,
              s_humidity_endpoint_id,
              s_pressure_endpoint_id);
+#else
+    ESP_LOGI(TAG,
+             "Matter sensor endpoints created: temperature=%u humidity=%u",
+             s_temperature_endpoint_id,
+             s_humidity_endpoint_id);
+#endif
 
     return ESP_OK;
 #else
@@ -468,6 +491,7 @@ esp_err_t create_sensor_endpoints(node_t *node)
     }
     s_humidity_endpoint_id = s_temperature_endpoint_id;
 
+#if CONFIG_APP_SENSOR_BME680
     err = add_device_type(environment_endpoint,
                           pressure_sensor::get_device_type_id(),
                           pressure_sensor::get_device_type_version());
@@ -483,13 +507,22 @@ esp_err_t create_sensor_endpoints(node_t *node)
         return ESP_FAIL;
     }
     s_pressure_endpoint_id = s_temperature_endpoint_id;
+#endif
 
+#if CONFIG_APP_SENSOR_BME680
     ESP_LOGI(TAG,
              "Matter environment endpoint created: endpoint=%u temperature=%u humidity=%u pressure=%u",
              s_temperature_endpoint_id,
              s_temperature_endpoint_id,
              s_humidity_endpoint_id,
              s_pressure_endpoint_id);
+#else
+    ESP_LOGI(TAG,
+             "Matter environment endpoint created: endpoint=%u temperature=%u humidity=%u",
+             s_temperature_endpoint_id,
+             s_temperature_endpoint_id,
+             s_humidity_endpoint_id);
+#endif
 
     return ESP_OK;
 #endif

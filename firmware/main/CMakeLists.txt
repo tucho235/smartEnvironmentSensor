@@ -7,19 +7,23 @@ set(app_requires
     nvs_flash
 )
 
-set(app_priv_requires
-    bme68x
-)
+set(app_priv_requires)
 
 set(app_sources
     "app_main.cpp"
-    "bme680_sensor.cpp"
     "matter_config.cpp"
     "matter_device.cpp"
     "memory_diagnostics.cpp"
     "sensor_service.cpp"
     "wifi_station.cpp"
 )
+
+if(CONFIG_APP_SENSOR_BME680)
+    list(APPEND app_priv_requires bme68x)
+    list(APPEND app_sources "bme680_sensor.cpp")
+elseif(CONFIG_APP_SENSOR_SHT30)
+    list(APPEND app_sources "sht30_sensor.cpp")
+endif()
 
 if(CONFIG_APP_ENABLE_MQTT_TELEMETRY OR CONFIG_APP_ENABLE_CONFIG_PORTAL)
     list(APPEND app_requires espressif__cjson)

@@ -3,11 +3,15 @@
 #include <cstdint>
 
 #include "hal/gpio_types.h"
+#include "sdkconfig.h"
 
 namespace app_config {
 constexpr gpio_num_t kI2cSdaGpio = GPIO_NUM_4;
 constexpr gpio_num_t kI2cSclGpio = GPIO_NUM_5;
 constexpr uint8_t kBme680I2cAddress = 0x76;
+#if CONFIG_APP_SENSOR_SHT30
+constexpr uint8_t kSht30I2cAddress = CONFIG_APP_SHT30_I2C_ADDRESS;
+#endif
 constexpr uint32_t kI2cClockHz = 100000;
 constexpr int kI2cTimeoutMs = 100;
 

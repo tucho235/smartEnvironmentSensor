@@ -107,7 +107,7 @@ esp_err_t Bme680Sensor::init()
     return ESP_OK;
 }
 
-esp_err_t Bme680Sensor::read_sample(Bme680Sample &sample)
+esp_err_t Bme680Sensor::read_sample(SensorSample &sample)
 {
     if (!initialized_) {
         return ESP_ERR_INVALID_STATE;

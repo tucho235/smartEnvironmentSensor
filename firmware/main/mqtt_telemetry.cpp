@@ -231,12 +231,20 @@ esp_err_t initialize_mqtt_client_from_config()
 
 esp_err_t format_payload(const SensorSnapshot &snapshot, char *payload, size_t payload_size, int &payload_length)
 {
+#if CONFIG_APP_SENSOR_BME680
     int written = std::snprintf(payload,
                                 payload_size,
                                 "{\"temperature_c\":%.2f,\"humidity_percent\":%.2f,\"pressure_hpa\":%.2f}",
                                 snapshot.sample.temperature_c,
                                 snapshot.sample.humidity_percent,
                                 snapshot.sample.pressure_hpa);
+#else
+    int written = std::snprintf(payload,
+                                payload_size,
+                                "{\"temperature_c\":%.2f,\"humidity_percent\":%.2f}",
+                                snapshot.sample.temperature_c,
+                                snapshot.sample.humidity_percent);
+#endif
     if (written < 0 || static_cast<size_t>(written) >= payload_size) {
         return ESP_ERR_INVALID_SIZE;
     }
